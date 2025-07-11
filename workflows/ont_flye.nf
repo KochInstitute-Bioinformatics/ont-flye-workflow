@@ -1,9 +1,14 @@
 include { CHOPPER } from '../modules/chopper'
 include { NANOPLOT } from '../modules/nanoplot'
 
-workflow ONT_FLYE {  // ← Changed from NANOPORE_QC to ONT_FLYE
+workflow ONT_FLYE {
     
-    // Create input channel
+    // Validate input parameter
+    if (!params.input_fastq) {
+        error "Please specify an input FASTQ file with --input_fastq"
+    }
+    
+    // Create input channel with path validation
     input_ch = Channel.fromPath(params.input_fastq, checkIfExists: true)
     
     // Create size ranges channel
