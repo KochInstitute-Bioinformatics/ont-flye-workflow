@@ -2,6 +2,9 @@
 
 nextflow.enable.dsl = 2
 
+// Include the main workflow
+include { ONT_FLYE } from './workflows/ont_flye'
+
 // Parameters with defaults
 params.help = false
 params.input_fastq = null
@@ -23,14 +26,14 @@ def helpMessage() {
     """.stripIndent()
 }
 
-include { ONT_FLYE } from './workflows/ont_flye'
-
+// Main workflow
 workflow {
-    // Show help and exit if requested
+    // Show help message if requested and exit
     if (params.help) {
         helpMessage()
         exit 0
     }
     
+    // Run the main workflow
     ONT_FLYE()
 }

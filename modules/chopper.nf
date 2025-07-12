@@ -3,8 +3,7 @@ process CHOPPER {
     publishDir "${params.outdir}/filtered_reads", mode: 'copy'
     
     input:
-    path input_fastq
-    val size_range
+    tuple path(input_fastq), val(size_range)
     
     output:
     tuple val(size_range.name), path("sHF171_${size_range.name}.fastq"), emit: filtered_reads
