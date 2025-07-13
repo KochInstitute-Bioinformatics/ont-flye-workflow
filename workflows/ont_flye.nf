@@ -2,6 +2,7 @@ include { CHOPPER } from '../modules/chopper'
 include { NANOPLOT } from '../modules/nanoplot'
 include { NANOPLOT as NANOPLOT_ORIGINAL } from '../modules/nanoplot'
 include { PARSE_NANOSTATS } from '../modules/parse_nanostats'
+include { FLYE } from '../modules/flye'
 
 workflow ONT_FLYE {
     
@@ -48,4 +49,8 @@ workflow ONT_FLYE {
     
     // Parse all NanoStats files and create summary table
     PARSE_NANOSTATS(all_nanoplot_results)
+    
+    // Run FLYE assembly on all filtered reads
+    // CHOPPER.out.filtered_reads contains tuples of [sample_name_sizerange, fastq_file]
+    FLYE(CHOPPER.out.filtered_reads)
 }

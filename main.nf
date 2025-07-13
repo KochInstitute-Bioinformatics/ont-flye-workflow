@@ -32,6 +32,7 @@ def helpMessage() {
     Optional arguments:
     --outdir         Output directory (default: results)
     --min_quality    Minimum quality score (default: 10)
+    --genome_size    Estimated genome size for Flye (default: 10m)
     --help           Show this help message
     
     CSV format example:
