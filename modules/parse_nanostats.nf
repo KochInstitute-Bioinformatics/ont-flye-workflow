@@ -47,10 +47,21 @@ process PARSE_NANOSTATS {
     # Write summary to JSON file
     with open("nanostats_summary.json", "w") as f:
         json.dump(results, f, indent=4)
+
+    # Create versions file using Python
+    import subprocess
+    python_version = subprocess.check_output(['python', '--version'], 
+                                           stderr=subprocess.STDOUT, 
+                                           text=True).strip().replace('Python ', '')
     
-    cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
-        python: \$(python --version | sed 's/Python //g')
-    END_VERSIONS
+    versions_data = {
+        "ONT_FLYE:PARSE_NANOSTATS": {
+            "python": python_version
+        }
+    }
+    
+    with open("versions.yml", "w") as f:
+        import yaml
+        yaml.dump(versions_data, f, default_flow_style=False)
     """
 }
