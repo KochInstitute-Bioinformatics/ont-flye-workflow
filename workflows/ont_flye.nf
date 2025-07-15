@@ -55,14 +55,29 @@ workflow ONT_FLYE {
     FLYE(CHOPPER.out.filtered_reads)
 
     // Gather assembly statistics from FLYE outputs
-    // Extract just the files and collect them
-    all_assembly_info_files = FLYE.out.assembly_info
-        .map { _sample_name, file -> file }
+    // Create a channel that combines sample names with their files
+    assembly_info_with_names = FLYE.out.assembly_info
+        .map { sample_name, file -> 
+            [sample_name, file]
+        }
+
+    flye_log_with_names = FLYE.out.flye_log
+        .map { sample_name, file -> 
+            [sample_name, file]
+        }
+
+    // Collect all files but preserve sample names in filenames
+    all_assembly_info = assembly_info_with_names
+        .map { sample_name, file -> 
+            file.copyTo("${sample_name}.assembly_info.txt")
+        }
         .collect()
-    
-    all_flye_log_files = FLYE.out.flye_log
-        .map { _sample_name, file -> file }
+
+    all_flye_logs = flye_log_with_names
+        .map { sample_name, file -> 
+            file.copyTo("${sample_name}.flye.log")
+        }
         .collect()
-    
-    GATHER_ASSEMBLY_STATS(all_assembly_info_files, all_flye_log_files)
+
+GATHER_ASSEMBLY_STATS(all_assembly_info, all_flye_logs)
 }

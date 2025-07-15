@@ -2,8 +2,8 @@ process GATHER_ASSEMBLY_STATS {
     publishDir "${params.outdir}/assembly_summary", mode: 'copy'
     
     input:
-    path assembly_info_files, stageAs: "assembly_info_*.txt"
-    path flye_log_files, stageAs: "flye_log_*.log"
+    path assembly_info_files
+    path flye_log_files
     
     output:
     path "assembly_summary.json", emit: summary
@@ -78,31 +78,37 @@ process GATHER_ASSEMBLY_STATS {
         
         return stats
     
-    # Find all staged files
-    assembly_info_files = sorted(glob.glob("assembly_info_*.txt"))
-    flye_log_files = sorted(glob.glob("flye_log_*.log"))
+    # Find all assembly_info and flye.log files
+    assembly_info_files = glob.glob("*.assembly_info.txt")
+    flye_log_files = glob.glob("*.flye.log")
     
     print(f"Found {len(assembly_info_files)} assembly_info files")
     print(f"Found {len(flye_log_files)} flye_log files")
     
     all_assembly_stats = {}
     
-    # Process files in pairs (they should be in the same order due to sorting)
-    for i, assembly_info_file in enumerate(assembly_info_files):
-        if i < len(flye_log_files):
-            flye_log_file = flye_log_files[i]
-            
-            # Extract sample name from the staged filename
-            # assembly_info_1.txt -> sample name from index 1
-            sample_index = assembly_info_file.replace('assembly_info_', '').replace('.txt', '')
-            
-            # We need to get the actual sample name - let's extract it from the file path in a different way
-            # For now, use the index as identifier, but we'll improve this
-            sample_name = f"sample_{sample_index}"
+    # Create dictionaries for easy lookup
+    assembly_info_dict = {}
+    for file in assembly_info_files:
+        sample_name = file.replace('.assembly_info.txt', '')
+        assembly_info_dict[sample_name] = file
+    
+    flye_log_dict = {}
+    for file in flye_log_files:
+        sample_name = file.replace('.flye.log', '')
+        flye_log_dict[sample_name] = file
+    
+    # Process each sample
+    for sample_name in assembly_info_dict.keys():
+        if sample_name in flye_log_dict:
+            assembly_info_file = assembly_info_dict[sample_name]
+            flye_log_file = flye_log_dict[sample_name]
             
             print(f"Processing {sample_name} (files: {assembly_info_file}, {flye_log_file})...")
             stats = extract_assembly_stats(assembly_info_file, flye_log_file, sample_name)
             all_assembly_stats[sample_name] = stats
+        else:
+            print(f"Warning: No flye.log found for sample {sample_name}")
     
     # Write consolidated JSON file
     with open("assembly_summary.json", 'w') as json_file:
@@ -112,8 +118,8 @@ process GATHER_ASSEMBLY_STATS {
     print("Output written to: assembly_summary.json")
     
     # Create versions file
-    python_version = subprocess.check_output(['python', '--version'],
-                                           stderr=subprocess.STDOUT,
+    python_version = subprocess.check_output(['python', '--version'], 
+                                           stderr=subprocess.STDOUT, 
                                            text=True).strip().replace('Python ', '')
     
     versions_data = {
