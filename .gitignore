@@ -27,3 +27,5 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+*.flye.logs
+*.assembly_info.txt
