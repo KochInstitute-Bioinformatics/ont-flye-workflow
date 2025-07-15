@@ -9,6 +9,7 @@ process FLYE {
     tuple val(sample_name), path("${sample_name}.assembly"), emit: assembly_dir
     tuple val(sample_name), path("${sample_name}.assembly/assembly.fasta"), emit: assembly_fasta
     tuple val(sample_name), path("${sample_name}.assembly/assembly_info.txt"), emit: assembly_info
+    tuple val(sample_name), path("${sample_name}.assembly/flye.log"), emit: flye_log
     
     script:
     """
