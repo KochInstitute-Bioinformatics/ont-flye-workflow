@@ -43,6 +43,16 @@ workflow SCAN_MODE {
     // Run FLYE assembly on all filtered reads
     FLYE(CHOPPER.out.filtered_reads)
 
+    // Filter out failed assemblies before BLAST
+    successful_assemblies = FLYE.out.assembly_fasta
+        .filter { sample_name, assembly_fasta ->
+            // Check if assembly file exists and is not a failure marker
+            assembly_fasta.exists() && 
+            assembly_fasta.size() > 100 &&  // Minimum size check
+            !assembly_fasta.text.contains("ASSEMBLY_FAILED")
+    }
+
+
     // BLAST analysis
     transgene_fasta = file("${params.transgene_dir}/A-vector_herceptin_pEY345.fa", checkIfExists: true)
     
