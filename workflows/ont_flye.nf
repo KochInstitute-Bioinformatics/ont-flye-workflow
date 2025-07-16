@@ -27,31 +27,22 @@ workflow ONT_FLYE {
         input_ch = Channel.of([params.name, file(params.input_fastq, checkIfExists: true), transgene])
     }
 
-    // Load transgene library
-    transgene_library_ch = Channel
-        .fromPath(params.transgene_library, checkIfExists: true)
-        .splitCsv(header: true)
-        .map { row ->
-            [row.transgene_name, file("${params.transgene_dir}/${row.fasta_file}", checkIfExists: true)]
-        }
-
     // Create size ranges channel
     size_ranges_ch = Channel.fromList(params.size_ranges)
 
     // Combine input with each size range to create all combinations
-    // This creates tuples of [sample_name, fastq_file, transgene_name, size_range]
     input_combinations = input_ch.combine(size_ranges_ch)
-        .map { sample_name, fastq_file, transgene_name, size_range ->
-            [sample_name, fastq_file, size_range, transgene_name]
+        .map { sample_name, fastq_file, _transgene_name, size_range ->
+            // Prefix with _ to suppress warning since we're not using transgene_name here
+            [sample_name, fastq_file, size_range]
         }
 
     // Run CHOPPER for each size range
-    CHOPPER(input_combinations.map { sample_name, fastq_file, size_range, transgene_name ->
-        [sample_name, fastq_file, size_range]
-    })
+    CHOPPER(input_combinations)
 
     // Run NANOPLOT on the original input files
-    original_input_for_nanoplot = input_ch.map { sample_name, file, transgene_name ->
+    original_input_for_nanoplot = input_ch.map { sample_name, file, _transgene_name ->
+        // Prefix with _ to suppress warning since we're not using transgene_name here
         tuple("${sample_name}_original", file)
     }
     NANOPLOT_ORIGINAL(original_input_for_nanoplot)
@@ -70,23 +61,13 @@ workflow ONT_FLYE {
     // Run FLYE assembly on all filtered reads
     FLYE(CHOPPER.out.filtered_reads)
 
-    // Prepare data for TRANSGENE_BLAST
-    // Combine assembly results with transgene information
+    // SIMPLE BLAST APPROACH - Just use the default transgene for all samples for now
+    transgene_fasta = file("${params.transgene_dir}/A-vector_herceptin_pEY345.fa", checkIfExists: true)
+    
+    // Prepare BLAST input
     blast_input_ch = FLYE.out.assembly_fasta
         .map { sample_name_size, assembly_fasta ->
-            // Extract original sample name (remove size suffix)
-            def sample_name = sample_name_size.replaceAll(/_\d+k.*$/, '')
-            [sample_name, sample_name_size, assembly_fasta]
-        }
-        .combine(input_ch.map { sample_name, fastq_file, transgene_name ->
-            [sample_name, transgene_name]
-        }, by: 0)
-        .map { sample_name, sample_name_size, assembly_fasta, transgene_name ->
-            [sample_name_size, assembly_fasta, transgene_name]
-        }
-        .combine(transgene_library_ch, by: 2)
-        .map { transgene_name, sample_name_size, assembly_fasta, transgene_fasta ->
-            [sample_name_size, assembly_fasta, transgene_name, transgene_fasta]
+            [sample_name_size, assembly_fasta, "A-vector_herceptin_pEY345", transgene_fasta]
         }
 
     // Run TRANSGENE_BLAST
