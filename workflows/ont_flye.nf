@@ -27,23 +27,13 @@ workflow ONT_FLYE {
     // Split input by mode
     scan_samples = input_ch
         .filter { sample_name, fastq_file, transgene_name, mode -> mode == 'scan' }
-        .map { sample_name, fastq_file, transgene_name, mode -> [sample_name, fastq_file, transgene_name] }
+        .map { sample_name, fastq_file, transgene_name, _mode -> [sample_name, fastq_file, transgene_name] }
     
     downsample_samples = input_ch
         .filter { sample_name, fastq_file, transgene_name, mode -> mode == 'downsample' }
-        .map { sample_name, fastq_file, transgene_name, mode -> [sample_name, fastq_file, transgene_name] }
+        .map { sample_name, fastq_file, transgene_name, _mode -> [sample_name, fastq_file, transgene_name] }
 
-    // Run appropriate workflow based on mode
-    if (scan_samples) {
-        SCAN_MODE(scan_samples)
-    }
-    
-    if (downsample_samples) {
-        DOWNSAMPLE_MODE(downsample_samples)
-    }
-    
-    // Emit results (you can combine results from both modes if needed)
-    emit:
-    scan_results = scan_samples ? SCAN_MODE.out : Channel.empty()
-    downsample_results = downsample_samples ? DOWNSAMPLE_MODE.out : Channel.empty()
+    // Run workflows - Nextflow will automatically handle empty channels
+    SCAN_MODE(scan_samples)
+    DOWNSAMPLE_MODE(downsample_samples)
 }

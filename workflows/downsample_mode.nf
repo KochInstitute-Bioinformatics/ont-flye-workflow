@@ -15,7 +15,7 @@ workflow DOWNSAMPLE_MODE {
     
     // Create combinations of samples and downsample rates
     downsample_input = input_ch
-        .map { sample_name, fastq_file, transgene_name ->
+        .map { sample_name, fastq_file, _transgene_name ->
             [sample_name, fastq_file]
         }
         .combine(downsample_rates)
@@ -47,22 +47,22 @@ workflow DOWNSAMPLE_MODE {
     
     // Gather assembly statistics
     assembly_info_with_names = FLYE.out.assembly_info
-        .map { sample_name, file ->
-            [sample_name, file]
+        .map { sample_name, assembly_file ->
+            [sample_name, assembly_file]
         }
     flye_log_with_names = FLYE.out.flye_log
-        .map { sample_name, file ->
-            [sample_name, file]
+        .map { sample_name, log_file ->
+            [sample_name, log_file]
         }
 
     all_assembly_info = assembly_info_with_names
-        .map { sample_name, file ->
-            file.copyTo("${sample_name}.assembly_info.txt")
+        .map { sample_name, assembly_file ->
+            assembly_file.copyTo("${sample_name}.assembly_info.txt")
         }
         .collect()
     all_flye_logs = flye_log_with_names
-        .map { sample_name, file ->
-            file.copyTo("${sample_name}.flye.log")
+        .map { sample_name, log_file ->
+            log_file.copyTo("${sample_name}.flye.log")
         }
         .collect()
 
