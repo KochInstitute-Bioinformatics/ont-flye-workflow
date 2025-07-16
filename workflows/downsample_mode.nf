@@ -38,16 +38,8 @@ workflow DOWNSAMPLE_MODE {
     // Run FLYE assembly on downsampled reads
     FLYE(DOWNSAMPLE_FASTQ.out.downsampled_reads)
     
-    // Filter out failed assemblies before BLAST
-    successful_assemblies = FLYE.out.assembly_fasta
-        .filter { sample_name, assembly_fasta ->
-        // Check if assembly file exists and is not a failure marker
-            assembly_fasta.exists() && 
-            assembly_fasta.size() > 100 &&  // Minimum size check
-            !assembly_fasta.text.contains("ASSEMBLY_FAILED")
-    }
-
-    // BLAST analysis
+    // BLAST analysis - only on successful assemblies
+    // With errorStrategy = 'ignore', failed assemblies won't produce outputs
     transgene_fasta = file("${params.transgene_dir}/A-vector_herceptin_pEY345.fa", checkIfExists: true)
     
     blast_input_ch = FLYE.out.assembly_fasta
@@ -57,7 +49,7 @@ workflow DOWNSAMPLE_MODE {
 
     TRANSGENE_BLAST(blast_input_ch)
     
-    // Gather assembly statistics
+    // Gather assembly statistics - only from successful assemblies
     assembly_info_with_names = FLYE.out.assembly_info
         .map { sample_name, assembly_file ->
             [sample_name, assembly_file]
