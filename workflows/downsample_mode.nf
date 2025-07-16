@@ -13,6 +13,9 @@ workflow DOWNSAMPLE_MODE {
     // Define downsampling rates
     downsample_rates = Channel.fromList(params.downsample_rates)
     
+    // Get the downsample script
+    downsample_script = file("${projectDir}/bin/downsample_fastq.py", checkIfExists: true)
+    
     // Create combinations of samples and downsample rates
     downsample_input = input_ch
         .map { sample_name, fastq_file, _transgene_name ->
@@ -21,7 +24,7 @@ workflow DOWNSAMPLE_MODE {
         .combine(downsample_rates)
     
     // Downsample the FASTQ files
-    DOWNSAMPLE_FASTQ(downsample_input)
+    DOWNSAMPLE_FASTQ(downsample_input, downsample_script)
     
     // Run NANOPLOT on each downsampled file
     NANOPLOT(DOWNSAMPLE_FASTQ.out.downsampled_reads)

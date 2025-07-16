@@ -24,13 +24,13 @@ workflow ONT_FLYE {
         input_ch = Channel.of([params.name, file(params.input_fastq, checkIfExists: true), transgene, mode])
     }
 
-    // Split input by mode
+    // Split input by mode - fix the unused parameter warnings
     scan_samples = input_ch
-        .filter { sample_name, fastq_file, transgene_name, mode -> mode == 'scan' }
+        .filter { _sample_name, _fastq_file, _transgene_name, mode -> mode == 'scan' }
         .map { sample_name, fastq_file, transgene_name, _mode -> [sample_name, fastq_file, transgene_name] }
     
     downsample_samples = input_ch
-        .filter { sample_name, fastq_file, transgene_name, mode -> mode == 'downsample' }
+        .filter { _sample_name, _fastq_file, _transgene_name, mode -> mode == 'downsample' }
         .map { sample_name, fastq_file, transgene_name, _mode -> [sample_name, fastq_file, transgene_name] }
 
     // Run workflows - Nextflow will automatically handle empty channels

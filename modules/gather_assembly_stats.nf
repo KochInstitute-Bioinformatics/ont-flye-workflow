@@ -6,7 +6,7 @@ process GATHER_ASSEMBLY_STATS {
     path flye_log_files
     
     output:
-    path "assembly_summary.json", emit: summary
+    path "assembly_summary.json", emit: assembly_stats  // Changed from 'summary' to 'assembly_stats'
     path "versions.yml", emit: versions
     
     script:
@@ -18,7 +18,7 @@ process GATHER_ASSEMBLY_STATS {
     import subprocess
     import yaml
     import glob
-    
+
     def extract_assembly_stats(assembly_info_file, flye_log_file, sample_name):
         stats = {
             "sample_name": sample_name,
@@ -77,7 +77,7 @@ process GATHER_ASSEMBLY_STATS {
                             stats["flye_log"][key] = value
         
         return stats
-    
+
     # Find all assembly_info and flye.log files
     assembly_info_files = glob.glob("*.assembly_info.txt")
     flye_log_files = glob.glob("*.flye.log")
@@ -103,7 +103,6 @@ process GATHER_ASSEMBLY_STATS {
         if sample_name in flye_log_dict:
             assembly_info_file = assembly_info_dict[sample_name]
             flye_log_file = flye_log_dict[sample_name]
-            
             print(f"Processing {sample_name} (files: {assembly_info_file}, {flye_log_file})...")
             stats = extract_assembly_stats(assembly_info_file, flye_log_file, sample_name)
             all_assembly_stats[sample_name] = stats
@@ -123,7 +122,7 @@ process GATHER_ASSEMBLY_STATS {
                                            text=True).strip().replace('Python ', '')
     
     versions_data = {
-        "ONT_FLYE:GATHER_ASSEMBLY_STATS": {
+        "${task.process}": {
             "python": python_version
         }
     }

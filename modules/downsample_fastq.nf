@@ -5,6 +5,7 @@ process DOWNSAMPLE_FASTQ {
     
     input:
     tuple val(sample_name), path(fastq_file), val(downsample_rate)
+    path downsample_script  // Add the script as an input
     
     output:
     tuple val("${sample_name}_ds${downsample_rate}"), path("${sample_name}_ds${downsample_rate}.fastq"), emit: downsampled_reads
@@ -12,7 +13,7 @@ process DOWNSAMPLE_FASTQ {
     
     script:
     """
-    python3 ${projectDir}/bin/downsample_fastq.py \\
+    python3 ${downsample_script} \\
         ${fastq_file} \\
         ${downsample_rate} \\
         ${sample_name}_ds${downsample_rate}.fastq
