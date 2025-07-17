@@ -220,14 +220,17 @@ The workflow includes a transgene library in the `transgenes/` directory. To add
 
 ### Example SLURM execution
 
-nextflow run main.nf \
-  --samples batch.csv \
-  -profile slurm \
-  -c custom.config
+In process - this needs to be verified and tested!
+
+```bash
+nextflow run main.nf --samples batch.csv -profile slurm -c custom.config
+```
 
 ### Resource Tuning
 
 Adjust resources in `nextflow.config` based on your system:
+
+```text
 process {
     withName: 'FLYE' {
         cpus = 48        // Increase for faster assembly
@@ -235,6 +238,7 @@ process {
         time = '24.h'    // Adjust based on genome size
     }
 }
+```
 
 ## Troubleshooting
 
@@ -257,6 +261,8 @@ process {
 - Use appropriate execution profile
 
 ### Getting Help
+
+Contact: [Charlie Whittaker](mailto:charliew@mit.edu)
 
 ### Display help message
 
