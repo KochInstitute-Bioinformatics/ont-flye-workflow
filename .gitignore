@@ -7,8 +7,9 @@ work/
 *.svg
 *.txt
 
-# Results directory (optional - you might want to track some results)
+# Results directories (optional - you might want to track some results)
 results/
+results_*/
 
 # Conda/Mamba cache
 .conda/

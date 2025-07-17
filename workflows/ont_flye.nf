@@ -1,5 +1,6 @@
 include { SCAN_MODE } from './scan_mode'
 include { DOWNSAMPLE_MODE } from './downsample_mode'
+include { BOOTSTRAP_MODE } from './bootstrap_mode'
 
 workflow ONT_FLYE {
     // Create input channel based on input method
@@ -24,7 +25,7 @@ workflow ONT_FLYE {
         input_ch = Channel.of([params.name, file(params.input_fastq, checkIfExists: true), transgene, mode])
     }
 
-    // Split input by mode - fix the unused parameter warnings
+    // Split input by mode
     scan_samples = input_ch
         .filter { _sample_name, _fastq_file, _transgene_name, mode -> mode == 'scan' }
         .map { sample_name, fastq_file, transgene_name, _mode -> [sample_name, fastq_file, transgene_name] }
@@ -32,8 +33,13 @@ workflow ONT_FLYE {
     downsample_samples = input_ch
         .filter { _sample_name, _fastq_file, _transgene_name, mode -> mode == 'downsample' }
         .map { sample_name, fastq_file, transgene_name, _mode -> [sample_name, fastq_file, transgene_name] }
+    
+    bootstrap_samples = input_ch
+        .filter { _sample_name, _fastq_file, _transgene_name, mode -> mode == 'bootstrap' }
+        .map { sample_name, fastq_file, transgene_name, _mode -> [sample_name, fastq_file, transgene_name] }
 
     // Run workflows - Nextflow will automatically handle empty channels
     SCAN_MODE(scan_samples)
     DOWNSAMPLE_MODE(downsample_samples)
+    BOOTSTRAP_MODE(bootstrap_samples)
 }
