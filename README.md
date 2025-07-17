@@ -187,6 +187,7 @@ sample_003,/path/to/sample_003.fastq.gz,A-vector_herceptin_pEY345,bootstrap
 
 ## Output Structure
 
+```text
 results/
 ├── pipeline_info/           # Execution reports and logs
 ├── chopper/                 # Filtered reads (scan mode)
@@ -196,6 +197,7 @@ results/
 ├── downsample/             # Downsampled reads (downsample mode)
 ├── bootstrap/              # Bootstrap replicates (bootstrap mode)
 └── summary/                # Aggregated statistics
+```
 
 ### Key Output Files
 
