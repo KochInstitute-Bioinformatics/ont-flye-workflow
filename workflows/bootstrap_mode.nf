@@ -49,16 +49,15 @@ workflow BOOTSTRAP_MODE {
     
     TRANSGENE_BLAST(blast_input_ch)
     
-    // Gather assembly statistics - collect files without copying to launch directory
-    assembly_info_collected = FLYE.out.assembly_info
-        .map { _sample_name, assembly_file -> assembly_file }
+    // Gather assembly statistics - preserve sample names (updated to match new process signature)
+    sample_data_collected = FLYE.out.assembly_info
+        .join(FLYE.out.flye_log)
+        .map { sample_name, assembly_file, log_file -> 
+            [sample_name, assembly_file, log_file] 
+        }
         .collect()
     
-    flye_log_collected = FLYE.out.flye_log
-        .map { _sample_name, log_file -> log_file }
-        .collect()
-    
-    GATHER_ASSEMBLY_STATS(assembly_info_collected, flye_log_collected)
+    GATHER_ASSEMBLY_STATS(sample_data_collected)
     
     emit:
     bootstrap_reads = BOOTSTRAP_DOWNSAMPLE.out.bootstrap_reads

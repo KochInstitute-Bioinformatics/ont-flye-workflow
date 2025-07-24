@@ -2,8 +2,7 @@ process GATHER_ASSEMBLY_STATS {
     publishDir "${params.outdir}/assembly_summary", mode: 'copy'
     
     input:
-    path assembly_info_files, stageAs: "assembly_info_*.txt"
-    path flye_log_files, stageAs: "flye_log_*.log"
+    val sample_data_list
     
     output:
     path "assembly_summary.json", emit: assembly_stats
@@ -11,12 +10,6 @@ process GATHER_ASSEMBLY_STATS {
     
     script:
     """
-    # List all input files for debugging
-    echo "Assembly info files:"
-    ls -la assembly_info_*.txt 2>/dev/null || echo "No assembly_info files found"
-    echo "Flye log files:"
-    ls -la flye_log_*.log 2>/dev/null || echo "No flye_log files found"
-    
     # Create and run Python script
     cat > gather_stats.py << 'EOF'
 import os
@@ -24,7 +17,6 @@ import json
 import re
 import subprocess
 import yaml
-import glob
 
 def extract_assembly_stats(assembly_info_file, flye_log_file, sample_name):
     stats = {
@@ -85,39 +77,67 @@ def extract_assembly_stats(assembly_info_file, flye_log_file, sample_name):
 
     return stats
 
-# Find all assembly_info and flye.log files
-assembly_info_files = glob.glob("assembly_info_*.txt")
-flye_log_files = glob.glob("flye_log_*.log")
-
-print(f"Found {len(assembly_info_files)} assembly_info files: {assembly_info_files}")
-print(f"Found {len(flye_log_files)} flye_log files: {flye_log_files}")
+# Parse the sample data from Nextflow
+sample_data_str = '''${sample_data_list}'''
+print(f"Raw sample data: {sample_data_str}")
 
 all_assembly_stats = {}
 
-# Create dictionaries for easy lookup by file index
-assembly_info_dict = {}
-for i, file in enumerate(assembly_info_files):
-    # Use the file index as a key since files are staged with numeric suffixes
-    assembly_info_dict[i] = file
-
-flye_log_dict = {}
-for i, file in enumerate(flye_log_files):
-    # Use the file index as a key since files are staged with numeric suffixes
-    flye_log_dict[i] = file
-
-print(f"Assembly info dict: {assembly_info_dict}")
-print(f"Flye log dict: {flye_log_dict}")
-
-# Process each pair of files (assuming they're in the same order)
-for i in range(min(len(assembly_info_files), len(flye_log_files))):
-    if i in assembly_info_dict and i in flye_log_dict:
-        assembly_info_file = assembly_info_dict[i]
-        flye_log_file = flye_log_dict[i]
-        sample_name = f"sample_{i+1}"  # Generic sample name since we lost the original names
+# Parse the sample data list
+# The format should be: [[sample_name, assembly_file, log_file], ...]
+import ast
+try:
+    sample_data = ast.literal_eval(sample_data_str)
+    print(f"Parsed sample data: {sample_data}")
+    
+    for item in sample_data:
+        if len(item) >= 3:
+            sample_name = item[0]
+            assembly_file = item[1]
+            log_file = item[2]
+            
+            print(f"Processing {sample_name} (files: {assembly_file}, {log_file})...")
+            
+            if os.path.exists(assembly_file) and os.path.exists(log_file):
+                stats = extract_assembly_stats(assembly_file, log_file, sample_name)
+                all_assembly_stats[sample_name] = stats
+            else:
+                print(f"Warning: Files not found for {sample_name}")
+                print(f"  Assembly file exists: {os.path.exists(assembly_file)}")
+                print(f"  Log file exists: {os.path.exists(log_file)}")
+                
+except Exception as e:
+    print(f"Error parsing sample data: {e}")
+    print("Falling back to file discovery method...")
+    
+    # Fallback: try to discover files and extract names from paths
+    import glob
+    assembly_files = glob.glob("**/assembly_info.txt", recursive=True)
+    log_files = glob.glob("**/flye.log", recursive=True)
+    
+    print(f"Found assembly files: {assembly_files}")
+    print(f"Found log files: {log_files}")
+    
+    for assembly_file in assembly_files:
+        # Try to extract sample name from path
+        path_parts = assembly_file.split('/')
+        sample_name = "unknown_sample"
+        for part in path_parts:
+            if 'assembly' in part and part != 'assembly_info.txt':
+                sample_name = part.replace('.assembly', '')
+                break
         
-        print(f"Processing {sample_name} (files: {assembly_info_file}, {flye_log_file})...")
-        stats = extract_assembly_stats(assembly_info_file, flye_log_file, sample_name)
-        all_assembly_stats[sample_name] = stats
+        if sample_name == "unknown_sample":
+            sample_name = f"unknown_sample_{len(all_assembly_stats) + 1}"
+        
+        # Find corresponding log file
+        log_file = assembly_file.replace('assembly_info.txt', 'flye.log')
+        if os.path.exists(log_file):
+            print(f"Processing {sample_name} (files: {assembly_file}, {log_file})...")
+            stats = extract_assembly_stats(assembly_file, log_file, sample_name)
+            all_assembly_stats[sample_name] = stats
+        else:
+            print(f"Warning: No corresponding log file found for {assembly_file}")
 
 # Write consolidated JSON file
 with open("assembly_summary.json", 'w') as json_file:
