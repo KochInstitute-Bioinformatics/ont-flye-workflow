@@ -2,15 +2,30 @@ process GATHER_ASSEMBLY_STATS {
     publishDir "${params.outdir}/assembly_summary", mode: 'copy'
     
     input:
-    path assembly_info_files
-    path flye_log_files
+    path "assembly_info/*"
+    path "flye_logs/*"
     
     output:
-    path "assembly_summary.json", emit: assembly_stats  // Changed from 'summary' to 'assembly_stats'
+    path "assembly_summary.json", emit: assembly_stats
     path "versions.yml", emit: versions
     
     script:
     """
+    # Copy files to working directory with expected names
+    for file in assembly_info/*; do
+        if [ -f "\$file" ]; then
+            basename_file=\$(basename "\$file")
+            cp "\$file" "./\${basename_file}"
+        fi
+    done
+    
+    for file in flye_logs/*; do
+        if [ -f "\$file" ]; then
+            basename_file=\$(basename "\$file")
+            cp "\$file" "./\${basename_file}"
+        fi
+    done
+    
     #!/usr/bin/env python3
     import os
     import json
