@@ -2,8 +2,8 @@ process GATHER_ASSEMBLY_STATS {
     publishDir "${params.outdir}/assembly_summary", mode: 'copy'
     
     input:
-    path "assembly_info/*"
-    path "flye_logs/*"
+    path assembly_info_files, stageAs: "assembly_info_*.txt"
+    path flye_log_files, stageAs: "flye_log_*.log"
     
     output:
     path "assembly_summary.json", emit: assembly_stats
@@ -11,21 +11,12 @@ process GATHER_ASSEMBLY_STATS {
     
     script:
     """
-    # Copy files to working directory with expected names
-    for file in assembly_info/*; do
-        if [ -f "\$file" ]; then
-            basename_file=\$(basename "\$file")
-            cp "\$file" "./\${basename_file}"
-        fi
-    done
-
-    for file in flye_logs/*; do
-        if [ -f "\$file" ]; then
-            basename_file=\$(basename "\$file")
-            cp "\$file" "./\${basename_file}"
-        fi
-    done
-
+    # List all input files for debugging
+    echo "Assembly info files:"
+    ls -la assembly_info_*.txt 2>/dev/null || echo "No assembly_info files found"
+    echo "Flye log files:"
+    ls -la flye_log_*.log 2>/dev/null || echo "No flye_log files found"
+    
     # Create and run Python script
     cat > gather_stats.py << 'EOF'
 import os
@@ -95,35 +86,38 @@ def extract_assembly_stats(assembly_info_file, flye_log_file, sample_name):
     return stats
 
 # Find all assembly_info and flye.log files
-assembly_info_files = glob.glob("*.assembly_info.txt")
-flye_log_files = glob.glob("*.flye.log")
+assembly_info_files = glob.glob("assembly_info_*.txt")
+flye_log_files = glob.glob("flye_log_*.log")
 
-print(f"Found {len(assembly_info_files)} assembly_info files")
-print(f"Found {len(flye_log_files)} flye_log files")
+print(f"Found {len(assembly_info_files)} assembly_info files: {assembly_info_files}")
+print(f"Found {len(flye_log_files)} flye_log files: {flye_log_files}")
 
 all_assembly_stats = {}
 
-# Create dictionaries for easy lookup
+# Create dictionaries for easy lookup by file index
 assembly_info_dict = {}
-for file in assembly_info_files:
-    sample_name = file.replace('.assembly_info.txt', '')
-    assembly_info_dict[sample_name] = file
+for i, file in enumerate(assembly_info_files):
+    # Use the file index as a key since files are staged with numeric suffixes
+    assembly_info_dict[i] = file
 
 flye_log_dict = {}
-for file in flye_log_files:
-    sample_name = file.replace('.flye.log', '')
-    flye_log_dict[sample_name] = file
+for i, file in enumerate(flye_log_files):
+    # Use the file index as a key since files are staged with numeric suffixes
+    flye_log_dict[i] = file
 
-# Process each sample
-for sample_name in assembly_info_dict.keys():
-    if sample_name in flye_log_dict:
-        assembly_info_file = assembly_info_dict[sample_name]
-        flye_log_file = flye_log_dict[sample_name]
+print(f"Assembly info dict: {assembly_info_dict}")
+print(f"Flye log dict: {flye_log_dict}")
+
+# Process each pair of files (assuming they're in the same order)
+for i in range(min(len(assembly_info_files), len(flye_log_files))):
+    if i in assembly_info_dict and i in flye_log_dict:
+        assembly_info_file = assembly_info_dict[i]
+        flye_log_file = flye_log_dict[i]
+        sample_name = f"sample_{i+1}"  # Generic sample name since we lost the original names
+        
         print(f"Processing {sample_name} (files: {assembly_info_file}, {flye_log_file})...")
         stats = extract_assembly_stats(assembly_info_file, flye_log_file, sample_name)
         all_assembly_stats[sample_name] = stats
-    else:
-        print(f"Warning: No flye.log found for sample {sample_name}")
 
 # Write consolidated JSON file
 with open("assembly_summary.json", 'w') as json_file:

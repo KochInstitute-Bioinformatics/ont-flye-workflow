@@ -42,36 +42,23 @@ workflow BOOTSTRAP_MODE {
     
     // BLAST analysis - only on successful assemblies
     transgene_fasta = file("${params.transgene_dir}/A-vector_herceptin_pEY345.fa", checkIfExists: true)
-    
     blast_input_ch = FLYE.out.assembly_fasta
         .map { sample_name_bs, assembly_fasta ->
             [sample_name_bs, assembly_fasta, "A-vector_herceptin_pEY345", transgene_fasta]
         }
-
+    
     TRANSGENE_BLAST(blast_input_ch)
     
-    // Gather assembly statistics - only from successful assemblies
-    assembly_info_with_names = FLYE.out.assembly_info
-        .map { sample_name, assembly_file ->
-            [sample_name, assembly_file]
-        }
-    flye_log_with_names = FLYE.out.flye_log
-        .map { sample_name, log_file ->
-            [sample_name, log_file]
-        }
-
-    all_assembly_info = assembly_info_with_names
-        .map { sample_name, assembly_file ->
-            assembly_file.copyTo("${sample_name}.assembly_info.txt")
-        }
+    // Gather assembly statistics - collect files without copying to launch directory
+    assembly_info_collected = FLYE.out.assembly_info
+        .map { _sample_name, assembly_file -> assembly_file }
         .collect()
-    all_flye_logs = flye_log_with_names
-        .map { sample_name, log_file ->
-            log_file.copyTo("${sample_name}.flye.log")
-        }
+    
+    flye_log_collected = FLYE.out.flye_log
+        .map { _sample_name, log_file -> log_file }
         .collect()
-
-    GATHER_ASSEMBLY_STATS(all_assembly_info, all_flye_logs)
+    
+    GATHER_ASSEMBLY_STATS(assembly_info_collected, flye_log_collected)
     
     emit:
     bootstrap_reads = BOOTSTRAP_DOWNSAMPLE.out.bootstrap_reads
