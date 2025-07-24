@@ -54,15 +54,20 @@ workflow SCAN_MODE {
     
     TRANSGENE_BLAST(blast_input_ch)
     
-    // Gather assembly statistics - preserve sample names (updated to match new process signature)
-    sample_data_collected = FLYE.out.assembly_info
-        .join(FLYE.out.flye_log)
-        .map { sample_name, assembly_file, log_file -> 
-            [sample_name, assembly_file, log_file] 
-        }
+    // Gather assembly statistics - separate files and sample names
+    assembly_info_collected = FLYE.out.assembly_info
+        .map { _sample_name, assembly_file -> assembly_file }
         .collect()
     
-    GATHER_ASSEMBLY_STATS(sample_data_collected)
+    flye_log_collected = FLYE.out.flye_log
+        .map { _sample_name, log_file -> log_file }
+        .collect()
+    
+    sample_names_collected = FLYE.out.assembly_info
+        .map { sample_name, _assembly_file -> sample_name }
+        .collect()
+    
+    GATHER_ASSEMBLY_STATS(assembly_info_collected, flye_log_collected, sample_names_collected)
     
     emit:
     nanoplot_results = all_nanoplot_results

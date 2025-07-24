@@ -2,7 +2,9 @@ process GATHER_ASSEMBLY_STATS {
     publishDir "${params.outdir}/assembly_summary", mode: 'copy'
     
     input:
-    val sample_data_list
+    path assembly_info_files, stageAs: "assembly_info_*.txt"
+    path flye_log_files, stageAs: "flye_log_*.log"
+    val sample_names
     
     output:
     path "assembly_summary.json", emit: assembly_stats
@@ -17,6 +19,7 @@ import json
 import re
 import subprocess
 import yaml
+import glob
 
 def extract_assembly_stats(assembly_info_file, flye_log_file, sample_name):
     stats = {
@@ -77,67 +80,47 @@ def extract_assembly_stats(assembly_info_file, flye_log_file, sample_name):
 
     return stats
 
-# Parse the sample data from Nextflow
-sample_data_str = '''${sample_data_list}'''
-print(f"Raw sample data: {sample_data_str}")
+# Get sample names from Nextflow
+sample_names_str = '''${sample_names}'''
+print(f"Sample names: {sample_names_str}")
+
+# Parse sample names
+import ast
+try:
+    sample_names_list = ast.literal_eval(sample_names_str)
+    print(f"Parsed sample names: {sample_names_list}")
+except:
+    sample_names_list = []
+    print("Could not parse sample names")
+
+# Find all staged files
+assembly_info_files = sorted(glob.glob("assembly_info_*.txt"))
+flye_log_files = sorted(glob.glob("flye_log_*.log"))
+
+print(f"Found {len(assembly_info_files)} assembly_info files: {assembly_info_files}")
+print(f"Found {len(flye_log_files)} flye_log files: {flye_log_files}")
+print(f"Sample names count: {len(sample_names_list)}")
 
 all_assembly_stats = {}
 
-# Parse the sample data list
-# The format should be: [[sample_name, assembly_file, log_file], ...]
-import ast
-try:
-    sample_data = ast.literal_eval(sample_data_str)
-    print(f"Parsed sample data: {sample_data}")
+# Process files in order with corresponding sample names
+for i in range(min(len(assembly_info_files), len(flye_log_files))):
+    assembly_file = assembly_info_files[i]
+    log_file = flye_log_files[i]
     
-    for item in sample_data:
-        if len(item) >= 3:
-            sample_name = item[0]
-            assembly_file = item[1]
-            log_file = item[2]
-            
-            print(f"Processing {sample_name} (files: {assembly_file}, {log_file})...")
-            
-            if os.path.exists(assembly_file) and os.path.exists(log_file):
-                stats = extract_assembly_stats(assembly_file, log_file, sample_name)
-                all_assembly_stats[sample_name] = stats
-            else:
-                print(f"Warning: Files not found for {sample_name}")
-                print(f"  Assembly file exists: {os.path.exists(assembly_file)}")
-                print(f"  Log file exists: {os.path.exists(log_file)}")
-                
-except Exception as e:
-    print(f"Error parsing sample data: {e}")
-    print("Falling back to file discovery method...")
+    # Use provided sample name or generate one
+    if i < len(sample_names_list):
+        sample_name = sample_names_list[i]
+    else:
+        sample_name = f"sample_{i+1}"
     
-    # Fallback: try to discover files and extract names from paths
-    import glob
-    assembly_files = glob.glob("**/assembly_info.txt", recursive=True)
-    log_files = glob.glob("**/flye.log", recursive=True)
+    print(f"Processing {sample_name} (files: {assembly_file}, {log_file})...")
     
-    print(f"Found assembly files: {assembly_files}")
-    print(f"Found log files: {log_files}")
-    
-    for assembly_file in assembly_files:
-        # Try to extract sample name from path
-        path_parts = assembly_file.split('/')
-        sample_name = "unknown_sample"
-        for part in path_parts:
-            if 'assembly' in part and part != 'assembly_info.txt':
-                sample_name = part.replace('.assembly', '')
-                break
-        
-        if sample_name == "unknown_sample":
-            sample_name = f"unknown_sample_{len(all_assembly_stats) + 1}"
-        
-        # Find corresponding log file
-        log_file = assembly_file.replace('assembly_info.txt', 'flye.log')
-        if os.path.exists(log_file):
-            print(f"Processing {sample_name} (files: {assembly_file}, {log_file})...")
-            stats = extract_assembly_stats(assembly_file, log_file, sample_name)
-            all_assembly_stats[sample_name] = stats
-        else:
-            print(f"Warning: No corresponding log file found for {assembly_file}")
+    if os.path.exists(assembly_file) and os.path.exists(log_file):
+        stats = extract_assembly_stats(assembly_file, log_file, sample_name)
+        all_assembly_stats[sample_name] = stats
+    else:
+        print(f"Warning: Files not found for {sample_name}")
 
 # Write consolidated JSON file
 with open("assembly_summary.json", 'w') as json_file:
