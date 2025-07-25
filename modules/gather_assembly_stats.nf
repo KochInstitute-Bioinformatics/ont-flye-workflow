@@ -80,18 +80,40 @@ def extract_assembly_stats(assembly_info_file, flye_log_file, sample_name):
 
     return stats
 
-# Get sample names from Nextflow
+# Get sample names from Nextflow - improved parsing
 sample_names_str = '''${sample_names}'''
-print(f"Sample names: {sample_names_str}")
+print(f"Raw sample names string: {sample_names_str}")
 
-# Parse sample names
-import ast
+# Parse sample names with multiple fallback methods
+sample_names_list = []
+
+# Method 1: Try ast.literal_eval
 try:
+    import ast
     sample_names_list = ast.literal_eval(sample_names_str)
-    print(f"Parsed sample names: {sample_names_list}")
-except:
-    sample_names_list = []
-    print("Could not parse sample names")
+    print(f"Method 1 - ast.literal_eval successful: {sample_names_list}")
+except Exception as e:
+    print(f"Method 1 - ast.literal_eval failed: {e}")
+    
+    # Method 2: Try JSON parsing
+    try:
+        sample_names_list = json.loads(sample_names_str.replace("'", '"'))
+        print(f"Method 2 - JSON parsing successful: {sample_names_list}")
+    except Exception as e:
+        print(f"Method 2 - JSON parsing failed: {e}")
+        
+        # Method 3: Manual string parsing
+        try:
+            # Remove brackets and split by comma
+            clean_str = sample_names_str.strip('[]')
+            if clean_str:
+                sample_names_list = [name.strip().strip("'").strip('"') for name in clean_str.split(',')]
+                print(f"Method 3 - Manual parsing successful: {sample_names_list}")
+            else:
+                sample_names_list = []
+        except Exception as e:
+            print(f"Method 3 - Manual parsing failed: {e}")
+            sample_names_list = []
 
 # Find all staged files
 assembly_info_files = sorted(glob.glob("assembly_info_*.txt"))
@@ -100,6 +122,7 @@ flye_log_files = sorted(glob.glob("flye_log_*.log"))
 print(f"Found {len(assembly_info_files)} assembly_info files: {assembly_info_files}")
 print(f"Found {len(flye_log_files)} flye_log files: {flye_log_files}")
 print(f"Sample names count: {len(sample_names_list)}")
+print(f"Final sample names list: {sample_names_list}")
 
 all_assembly_stats = {}
 
@@ -109,10 +132,11 @@ for i in range(min(len(assembly_info_files), len(flye_log_files))):
     log_file = flye_log_files[i]
     
     # Use provided sample name or generate one
-    if i < len(sample_names_list):
+    if i < len(sample_names_list) and sample_names_list[i]:
         sample_name = sample_names_list[i]
     else:
         sample_name = f"sample_{i+1}"
+        print(f"Warning: Using fallback name {sample_name} for index {i}")
     
     print(f"Processing {sample_name} (files: {assembly_file}, {log_file})...")
     
