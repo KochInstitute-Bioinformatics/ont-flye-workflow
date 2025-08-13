@@ -15,7 +15,7 @@ workflow DOWNSAMPLE_MODE {
     downsample_script = file("${projectDir}/bin/downsample_fastq.py", checkIfExists: true)
     
     // Create fractions channel
-    fractions_ch = Channel.fromList(params.fractions)
+    fractions_ch = Channel.fromList(params.downsample_rates)
     
     // Combine input with each fraction to create all combinations
     input_combinations = input_ch.combine(fractions_ch)
