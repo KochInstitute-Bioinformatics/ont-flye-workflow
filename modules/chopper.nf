@@ -1,19 +1,26 @@
 process CHOPPER {
-    tag "${sample_name}_${size_range.name}"
-    publishDir "${params.outdir}/filtered_reads", mode: 'copy'
+    publishDir "${params.outdir}/selected_fastq", mode: 'symlink'
     
     input:
-    tuple val(sample_name), path(input_fastq), val(size_range)
+    tuple val(sample_name), path(fastq_file), val(size_range)
     
     output:
     tuple val("${sample_name}_${size_range.name}"), path("${sample_name}_${size_range.name}.fastq"), emit: filtered_reads
     
     script:
-    def max_length_arg = size_range.max ? "--maxlength ${size_range.max}" : ""
+    def min_length = size_range.min ?: 0
+    def max_length = size_range.max ? "-u ${size_range.max}" : ""
+    def quality = params.min_quality ?: 10
+    
     """
-    chopper -q ${params.min_quality} \\
-        -l ${size_range.min} \\
-        ${max_length_arg} \\
-        -i ${input_fastq} > ${sample_name}_${size_range.name}.fastq
+    chopper -q ${quality} \\
+        -l ${min_length} \\
+        ${max_length} \\
+        -i ${fastq_file} > ${sample_name}_${size_range.name}.fastq
+    """
+    
+    stub:
+    """
+    touch ${sample_name}_${size_range.name}.fastq
     """
 }

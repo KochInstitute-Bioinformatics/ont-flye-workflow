@@ -1,8 +1,6 @@
 process BOOTSTRAP_DOWNSAMPLE {
-    conda '/net/ostrom/data/bcc/charliew/.conda/envs/nf-core_v24'
-    
-    publishDir "${params.outdir}/bootstrap_reads", mode: 'copy'
-    
+    publishDir "${params.outdir}/selected_fastq", mode: 'symlink'
+
     input:
     tuple val(sample_name), path(fastq_file), val(fraction), val(replicate)
     path downsample_script
