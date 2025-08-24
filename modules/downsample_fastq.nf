@@ -1,6 +1,4 @@
 process DOWNSAMPLE_FASTQ {
-    publishDir "${params.outdir}/selected_fastq", mode: 'symlink'
-    
     input:
     tuple val(sample_name), path(fastq_file), val(fraction)
     path downsample_script
@@ -10,7 +8,7 @@ process DOWNSAMPLE_FASTQ {
     
     script:
     """
-    python ${downsample_script} ${fastq_file} ${sample_name}.fastq ${fraction}
+    python ${downsample_script} ${fastq_file} ${fraction} ${sample_name}.fastq
     """
     
     stub:
