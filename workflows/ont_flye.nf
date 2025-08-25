@@ -50,7 +50,7 @@ workflow ONT_FLYE {
 
         // Combine input with each size range to create all combinations
         filter_combinations = input_ch.combine(size_ranges_ch)
-            .map { sample_name, fastq_file, transgene_name, size_range ->
+            .map { sample_name, fastq_file, _transgene_name, size_range ->
                 [sample_name, fastq_file, size_range]
             }
 
@@ -95,7 +95,7 @@ workflow ONT_FLYE {
 
         // Collect all preflight logs
         all_preflight_logs = FLYE_PREFLIGHT.out.preflight_logs
-            .map { sample_name, log_file -> log_file }
+            .map { _sample_name, log_file -> log_file }
             .collect()
 
         // Get the parse_preflight script from bin directory
@@ -118,10 +118,10 @@ workflow ONT_FLYE {
             .splitCsv(header: true)
             .map { row -> row.sample_name }
             .combine(all_processed_fastq)
-            .filter { candidate_name, sample_name, fastq_file ->
+            .filter { candidate_name, sample_name, _fastq_file ->
                 candidate_name == sample_name
             }
-            .map { candidate_name, sample_name, fastq_file ->
+            .map { _candidate_name, sample_name, fastq_file ->
                 [sample_name, fastq_file]
             }
 
@@ -145,22 +145,22 @@ workflow ONT_FLYE {
 
         // Combine assemblies with transgene information from input
         assembly_with_transgene = FLYE.out.assembly_fasta
-            .combine(input_ch.map { sample_name, fastq_file, transgene_name -> [sample_name, transgene_name] })
-            .filter { assembly_sample, assembly_fasta, input_sample, transgene_name ->
+            .combine(input_ch.map { sample_name, _fastq_file, transgene_name -> [sample_name, transgene_name] })
+            .filter { assembly_sample, _assembly_fasta, input_sample, _transgene_name ->
                 // Match assembly samples with their original transgene assignments
                 assembly_sample.startsWith(input_sample.split('_')[0]) // Handle sample name variations
             }
-            .map { assembly_sample, assembly_fasta, input_sample, transgene_name ->
+            .map { assembly_sample, assembly_fasta, _input_sample, transgene_name ->
                 [assembly_sample, assembly_fasta, transgene_name]
             }
 
         // Join with transgene files
         blast_input = assembly_with_transgene
             .combine(transgene_ch)
-            .filter { assembly_sample, assembly_fasta, transgene_name, transgene_file_name, transgene_file ->
+            .filter { _assembly_sample, _assembly_fasta, transgene_name, transgene_file_name, _transgene_file ->
                 transgene_name == transgene_file_name
             }
-            .map { assembly_sample, assembly_fasta, transgene_name, transgene_file_name, transgene_file ->
+            .map { assembly_sample, assembly_fasta, transgene_name, _transgene_file_name, transgene_file ->
                 [assembly_sample, assembly_fasta, transgene_name, transgene_file]
             }
 
@@ -173,7 +173,7 @@ workflow ONT_FLYE {
 
         // Collect all BLAST result files - correct tuple destructuring for 2 elements
         all_blast_results = TRANSGENE_BLAST.out.blast_results
-            .map { sample_name, blast_file -> 
+            .map { _sample_name, blast_file -> 
                 blast_file
             }
             .collect()
@@ -192,7 +192,7 @@ workflow ONT_FLYE {
         // QUALITY CONTROL AND ANALYSIS - Run on original input AND all processed files
         // ========================================
         // Run NANOPLOT on original input files (mark them as "original")
-        original_input_for_nanoplot = input_ch.map { sample_name, fastq_file, transgene_name ->
+        original_input_for_nanoplot = input_ch.map { sample_name, fastq_file, _transgene_name ->
             tuple("${sample_name}_original", fastq_file)
         }
         NANOPLOT_ORIGINAL(original_input_for_nanoplot)
