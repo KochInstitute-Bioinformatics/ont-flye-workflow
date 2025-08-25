@@ -171,9 +171,9 @@ workflow ONT_FLYE {
         // PHASE 7: PARSE TRANSGENE BLAST RESULTS
         // ========================================
 
-        // Collect all BLAST result files - explicit tuple destructuring
+        // Collect all BLAST result files - correct tuple destructuring for 2 elements
         all_blast_results = TRANSGENE_BLAST.out.blast_results
-            .map { sample_name, transgene_name, blast_file -> 
+            .map { sample_name, blast_file -> 
                 blast_file
             }
             .collect()
