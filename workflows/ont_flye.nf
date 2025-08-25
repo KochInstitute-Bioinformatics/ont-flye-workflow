@@ -1,32 +1,12 @@
 include { CHOPPER } from '../modules/chopper'
 include { DOWNSAMPLE_FASTQ } from '../modules/downsample_fastq'
+include { FLYE_PREFLIGHT } from '../modules/flye_preflight'
+include { PARSE_PREFLIGHT_RESULTS } from '../modules/parse_preflight_results'
+include { FILTER_ASSEMBLY_CANDIDATES } from '../modules/filter_assembly_candidates'
+include { FLYE } from '../modules/flye'
+include { PARSE_NANOSTATS } from '../modules/parse_nanostats'
 include { NANOPLOT } from '../modules/nanoplot'
 include { NANOPLOT as NANOPLOT_ORIGINAL } from '../modules/nanoplot'
-
-process PARSE_NANOSTATS {
-    publishDir "${params.outdir}/summary", mode: 'copy'
-    
-    input:
-    path nanoplot_results
-    path parse_script
-    
-    output:
-    path "nanostats_summary.csv", emit: summary_csv
-    path "nanostats_summary.json", emit: summary_json
-    path "versions.yml", emit: versions
-    
-    script:
-    """
-    python ${parse_script}
-    """
-    
-    stub:
-    """
-    touch nanostats_summary.csv
-    touch nanostats_summary.json
-    touch versions.yml
-    """
-}
 
 workflow ONT_FLYE {
     
@@ -113,6 +93,53 @@ workflow ONT_FLYE {
         .mix(DOWNSAMPLE_FASTQ.out.downsampled_reads)
     
     // ========================================
+    // PHASE 3: FLYE PREFLIGHT - Run preflight on all selected FASTQ files
+    // ========================================
+    
+    // Run FLYE_PREFLIGHT on all processed FASTQ files
+    FLYE_PREFLIGHT(all_processed_fastq)
+    
+    // Collect all preflight logs
+    all_preflight_logs = FLYE_PREFLIGHT.out.preflight_logs
+        .map { sample_name, log_file -> log_file }
+        .collect()
+    
+    // Get the parse_preflight script from bin directory
+    parse_preflight_script = file("${projectDir}/bin/parse_preflight_flyelog.py", checkIfExists: true)
+    
+    // Parse all preflight logs and create summary table
+    PARSE_PREFLIGHT_RESULTS(all_preflight_logs, parse_preflight_script)
+    
+    // ========================================
+    // PHASE 4: COVERAGE-BASED ASSEMBLY DECISION
+    // ========================================
+    
+    // Filter assembly candidates based on coverage criteria
+    FILTER_ASSEMBLY_CANDIDATES(
+    PARSE_PREFLIGHT_RESULTS.out.preflight_csv
+    )
+    
+    // Create channel of FASTQ files that should be assembled
+    // Read the candidates CSV and match with FASTQ files
+    assembly_candidates = FILTER_ASSEMBLY_CANDIDATES.out.candidates_csv
+        .splitCsv(header: true)
+        .map { row -> row.sample_name }
+        .combine(all_processed_fastq)
+        .filter { candidate_name, sample_name, fastq_file ->
+            candidate_name == sample_name
+        }
+        .map { candidate_name, sample_name, fastq_file ->
+            [sample_name, fastq_file]
+        }
+    
+    // ========================================
+    // PHASE 5: FLYE ASSEMBLY - Only on selected candidates
+    // ========================================
+    
+    // Run FLYE assembly only on candidates that passed coverage criteria
+    FLYE(assembly_candidates)
+    
+    // ========================================
     // QUALITY CONTROL AND ANALYSIS - Run on original input AND all processed files
     // ========================================
     
@@ -140,6 +167,11 @@ workflow ONT_FLYE {
     // Emit the key outputs for FASTQ generation phase
     original_input = input_ch
     selected_fastq = all_processed_fastq
+    preflight_logs = FLYE_PREFLIGHT.out.preflight_logs
+    preflight_summary = PARSE_PREFLIGHT_RESULTS.out.preflight_csv
+    assembly_candidates = FILTER_ASSEMBLY_CANDIDATES.out.candidates_csv
+    assembly_filtered = FILTER_ASSEMBLY_CANDIDATES.out.filtered_csv
+    assemblies = FLYE.out.assembly_fasta
     nanoplot_results = all_nanoplot_results
     nanostats_summary = PARSE_NANOSTATS.out.summary_csv
 }

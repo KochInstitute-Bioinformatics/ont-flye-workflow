@@ -1,4 +1,6 @@
 process DOWNSAMPLE_FASTQ {
+    publishDir "${params.outdir}/selected_fastq", mode: 'copy'
+    
     input:
     tuple val(sample_name), path(fastq_file), val(fraction)
     path downsample_script

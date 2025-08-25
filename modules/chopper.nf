@@ -1,5 +1,5 @@
 process CHOPPER {
-    publishDir "${params.outdir}/selected_fastq", mode: 'symlink'
+    publishDir "${params.outdir}/selected_fastq", mode: 'copy'
     
     input:
     tuple val(sample_name), path(fastq_file), val(size_range)

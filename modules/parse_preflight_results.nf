@@ -1,5 +1,4 @@
 process PARSE_PREFLIGHT_RESULTS {
-    conda "conda-forge::python=3.9 conda-forge::pyyaml=6.0"
     publishDir "${params.outdir}/summary", mode: 'copy'
     
     input:
