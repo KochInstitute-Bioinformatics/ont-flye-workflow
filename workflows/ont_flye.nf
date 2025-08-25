@@ -8,6 +8,7 @@ include { TRANSGENE_BLAST } from '../modules/transgene_blast'  // Add this line
 include { PARSE_NANOSTATS } from '../modules/parse_nanostats'
 include { NANOPLOT } from '../modules/nanoplot'
 include { NANOPLOT as NANOPLOT_ORIGINAL } from '../modules/nanoplot'
+include { PARSE_TRANSGENE_BLAST } from '../modules/parse_transgene_blast'
 
 workflow ONT_FLYE {
     main:
@@ -167,6 +168,27 @@ workflow ONT_FLYE {
         TRANSGENE_BLAST(blast_input)
 
         // ========================================
+        // PHASE 7: PARSE TRANSGENE BLAST RESULTS
+        // ========================================
+
+        // Collect all BLAST result files - explicit tuple destructuring
+        all_blast_results = TRANSGENE_BLAST.out.blast_results
+            .map { sample_name, transgene_name, blast_file -> 
+                blast_file
+            }
+            .collect()
+
+        // Get the parse script from bin directory
+        parse_transgene_script = file("${projectDir}/bin/parse_transgene_blast.py", checkIfExists: true)
+
+        // Parse all BLAST results
+        PARSE_TRANSGENE_BLAST(
+            all_blast_results,
+            file(params.transgene_library),
+            parse_transgene_script
+        )
+
+        // ========================================
         // QUALITY CONTROL AND ANALYSIS - Run on original input AND all processed files
         // ========================================
         // Run NANOPLOT on original input files (mark them as "original")
@@ -198,7 +220,9 @@ workflow ONT_FLYE {
         assembly_candidates = FILTER_ASSEMBLY_CANDIDATES.out.candidates_csv
         assembly_filtered = FILTER_ASSEMBLY_CANDIDATES.out.filtered_csv
         assemblies = FLYE.out.assembly_fasta
-        blast_results = TRANSGENE_BLAST.out.blast_results  // Add this line
+        blast_results = TRANSGENE_BLAST.out.blast_results
+        transgene_summary_json = PARSE_TRANSGENE_BLAST.out.json_results
+        transgene_summary_csv = PARSE_TRANSGENE_BLAST.out.csv_results 
         nanoplot_results = all_nanoplot_results
         nanostats_summary = PARSE_NANOSTATS.out.summary_csv
 }
