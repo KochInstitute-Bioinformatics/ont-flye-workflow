@@ -6,6 +6,7 @@ process SIMPLE_RESULTS_SUMMARY {
     path preflight_summary
     path assembly_summary
     path transgene_count
+    path simple_summary_script  // <-- Add this input
     
     output:
     path "simple_results_summary.csv", emit: summary_csv
@@ -13,7 +14,7 @@ process SIMPLE_RESULTS_SUMMARY {
     
     script:
     """
-    python simple_summary.py \\
+    python ${simple_summary_script} \\
         --nanostats ${nanostats_summary} \\
         --preflight-summary ${preflight_summary} \\
         --assembly-summary ${assembly_summary} \\

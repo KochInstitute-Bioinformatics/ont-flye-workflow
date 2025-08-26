@@ -18,8 +18,8 @@ def parse_nanostats_summary(file_path):
                 'BaseSample': entry.get('BaseSample', ''),
                 'FullSample': entry.get('FullSample', ''),
                 'Category': entry.get('Category', ''),
-                'ReadCount': entry.get('ReadCount', 0),
-                'MeanLength': entry.get('MeanLength', 0.0)
+                'ReadCount': float(entry.get('ReadCount', 0)),  # Convert to float
+                'MeanLength': float(entry.get('MeanLength', 0.0))  # Convert to float
             })
         return pd.DataFrame(results)
     except Exception as e:
@@ -35,8 +35,8 @@ def parse_preflight_summary(file_path):
         results = []
         for entry in data:
             results.append({
-                'FullSample': entry.get('sample_name', ''),
-                'estimated_coverage': entry.get('estimated_coverage', 0)
+                'FullSample': entry.get('FullSample', ''),  # Note: using FullSample, not sample_name
+                'estimated_coverage': float(entry.get('EstimatedCoverage', 0))  # Note: EstimatedCoverage not estimated_coverage
             })
         return pd.DataFrame(results)
     except Exception as e:
@@ -44,19 +44,35 @@ def parse_preflight_summary(file_path):
         return pd.DataFrame()
 
 def parse_assembly_summary(file_path):
-    """Parse assembly_summary.json for Fragments and Mean coverage from flye.log section"""
+    """Parse assembly_summary.json for Fragments and Mean coverage from flye_log section"""
     try:
         with open(file_path, 'r') as f:
             data = json.load(f)
         
         results = []
-        for entry in data:
-            flye_log = entry.get('flye.log', {})
+        
+        # Handle the nested structure - data is a dict with sample names as keys
+        for sample_key, sample_data in data.items():
+            # Get the sample_name from within the sample_data
+            sample_name = sample_data.get('sample_name', sample_key)
+            
+            # Look for flye_log data (note: underscore, not dot!)
+            flye_log = sample_data.get('flye_log', {})
+            
+            # Extract Fragments and Mean coverage
+            fragments = 0
+            mean_coverage = 0.0
+            
+            if isinstance(flye_log, dict):
+                fragments = int(flye_log.get('Fragments', 0)) if flye_log.get('Fragments') else 0
+                mean_coverage = float(flye_log.get('Mean coverage', 0.0)) if flye_log.get('Mean coverage') else 0.0
+            
             results.append({
-                'FullSample': entry.get('sample_name', ''),
-                'Fragments': flye_log.get('Fragments', 0),
-                'Mean_coverage': flye_log.get('Mean coverage', 0.0)
+                'FullSample': sample_name,
+                'Fragments': fragments,
+                'Mean_coverage': mean_coverage
             })
+        
         return pd.DataFrame(results)
     except Exception as e:
         print(f"Error parsing assembly_summary.json: {e}", file=sys.stderr)
@@ -69,19 +85,37 @@ def parse_transgene_count(file_path):
             data = json.load(f)
         
         results = []
-        for entry in data:
-            # Handle contig_names - join list into string if it's a list
-            contig_names = entry.get('contig_names', [])
-            if isinstance(contig_names, list):
-                contig_names_str = ';'.join(contig_names)
-            else:
-                contig_names_str = str(contig_names)
+        # Group by assembly_name since there can be multiple transgenes per assembly
+        assembly_data = {}
+        
+        for key, entry in data.items():
+            assembly_name = entry.get('assembly_name', '')
+            if assembly_name not in assembly_data:
+                assembly_data[assembly_name] = {
+                    'FullSample': assembly_name,
+                    'full_length_count': 0,
+                    'contig_names': set()
+                }
             
+            # Sum up full_length_count across all transgenes for this assembly
+            assembly_data[assembly_name]['full_length_count'] += int(entry.get('full_length_count', 0))
+            
+            # Collect all contig names
+            contig_names = entry.get('contig_names', '')
+            if contig_names:
+                if isinstance(contig_names, list):
+                    assembly_data[assembly_name]['contig_names'].update(contig_names)
+                else:
+                    assembly_data[assembly_name]['contig_names'].add(str(contig_names))
+        
+        # Convert to list format
+        for assembly_name, data_dict in assembly_data.items():
             results.append({
-                'FullSample': entry.get('sample_name', ''),
-                'full_length_count': entry.get('full_length_count', 0),
-                'contig_names': contig_names_str
+                'FullSample': data_dict['FullSample'],
+                'full_length_count': data_dict['full_length_count'],
+                'contig_names': ';'.join(sorted(data_dict['contig_names']))
             })
+        
         return pd.DataFrame(results)
     except Exception as e:
         print(f"Error parsing transgene_count.json: {e}", file=sys.stderr)

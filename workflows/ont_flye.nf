@@ -4,7 +4,7 @@ include { FLYE_PREFLIGHT } from '../modules/flye_preflight'
 include { PARSE_PREFLIGHT_RESULTS } from '../modules/parse_preflight_results'
 include { FILTER_ASSEMBLY_CANDIDATES } from '../modules/filter_assembly_candidates'
 include { FLYE } from '../modules/flye'
-include { TRANSGENE_BLAST } from '../modules/transgene_blast'  // Add this line
+include { TRANSGENE_BLAST } from '../modules/transgene_blast'
 include { PARSE_NANOSTATS } from '../modules/parse_nanostats'
 include { NANOPLOT } from '../modules/nanoplot'
 include { NANOPLOT as NANOPLOT_ORIGINAL } from '../modules/nanoplot'
@@ -240,11 +240,15 @@ workflow ONT_FLYE {
         PARSE_NANOSTATS(all_nanoplot_results, parse_nanostats_script)
 
         // results summary (simple version)
+        simple_summary_script = file("${projectDir}/bin/simple_summary.py", checkIfExists: true)
+
+        // Update the SIMPLE_RESULTS_SUMMARY call
         SIMPLE_RESULTS_SUMMARY(
             PARSE_NANOSTATS.out.summary_json,
             PARSE_PREFLIGHT_RESULTS.out.preflight_json,
             GATHER_ASSEMBLY_STATS.out.assembly_stats,
-            PARSE_TRANSGENE_BLAST.out.json_results
+            PARSE_TRANSGENE_BLAST.out.json_results,
+            simple_summary_script
         )
 
     emit:
