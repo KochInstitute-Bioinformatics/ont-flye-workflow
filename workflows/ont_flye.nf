@@ -10,6 +10,7 @@ include { NANOPLOT } from '../modules/nanoplot'
 include { NANOPLOT as NANOPLOT_ORIGINAL } from '../modules/nanoplot'
 include { PARSE_TRANSGENE_BLAST } from '../modules/parse_transgene_blast'
 include { GATHER_ASSEMBLY_STATS } from '../modules/gather_assembly_stats'
+include { SIMPLE_RESULTS_SUMMARY } from '../modules/simple_results_summary'
 
 workflow ONT_FLYE {
     main:
@@ -237,6 +238,15 @@ workflow ONT_FLYE {
 
         // Parse all NanoStats files and create summary table
         PARSE_NANOSTATS(all_nanoplot_results, parse_nanostats_script)
+
+        // results summary (simple version)
+        SIMPLE_RESULTS_SUMMARY(
+        PARSE_NANOSTATS.out.summary_json,
+        FILTER_ASSEMBLY_CANDIDATES.out.filtered_csv,
+        PARSE_PREFLIGHT_RESULTS.out.preflight_csv ,
+        GATHER_ASSEMBLY_STATS.out.assembly_stats,
+        PARSE_TRANSGENE_BLAST.out.json_results
+    )
 
     emit:
         // Emit the key outputs for FASTQ generation phase
