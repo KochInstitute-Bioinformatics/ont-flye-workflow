@@ -9,6 +9,7 @@ include { PARSE_NANOSTATS } from '../modules/parse_nanostats'
 include { NANOPLOT } from '../modules/nanoplot'
 include { NANOPLOT as NANOPLOT_ORIGINAL } from '../modules/nanoplot'
 include { PARSE_TRANSGENE_BLAST } from '../modules/parse_transgene_blast'
+include { GATHER_ASSEMBLY_STATS } from '../modules/gather_assembly_stats'
 
 workflow ONT_FLYE {
     main:
@@ -189,6 +190,32 @@ workflow ONT_FLYE {
         )
 
         // ========================================
+        // PHASE 8: GATHER ASSEMBLY STATISTICS
+        // ========================================
+
+        // Collect assembly info files and flye logs from successful assemblies
+        assembly_info_files = FLYE.out.assembly_info
+            .map { _sample_name, info_file -> info_file }
+            .collect()
+
+        flye_log_files = FLYE.out.flye_log
+            .map { _sample_name, log_file -> log_file }
+            .collect()
+
+        // Extract sample names from successful assemblies
+        assembly_sample_names = FLYE.out.assembly_fasta
+            .map { sample_name, _fasta_file -> sample_name }
+            .collect()
+
+        // Run GATHER_ASSEMBLY_STATS
+        GATHER_ASSEMBLY_STATS(
+            assembly_info_files,
+            flye_log_files,
+            assembly_sample_names,
+            file("${projectDir}/bin/gather_assembly_stats.py")  // Pass script as input
+            )
+
+        // ========================================
         // QUALITY CONTROL AND ANALYSIS - Run on original input AND all processed files
         // ========================================
         // Run NANOPLOT on original input files (mark them as "original")
@@ -225,4 +252,5 @@ workflow ONT_FLYE {
         transgene_summary_csv = PARSE_TRANSGENE_BLAST.out.csv_results 
         nanoplot_results = all_nanoplot_results
         nanostats_summary = PARSE_NANOSTATS.out.summary_csv
+        assembly_summary = GATHER_ASSEMBLY_STATS.out.assembly_stats
 }
