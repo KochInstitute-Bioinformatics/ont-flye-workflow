@@ -26,37 +26,21 @@ def parse_nanostats_summary(file_path):
         print(f"Error parsing nanostats_summary.json: {e}", file=sys.stderr)
         return pd.DataFrame()
 
-def parse_assembly_files(filtered_path, candidates_path):
-    """Parse assembly_filtered.csv and assembly_candidates.csv for coverage and status"""
+def parse_preflight_summary(file_path):
+    """Parse flye_preflight_summary.json for coverage data"""
     try:
-        # Read assembly files
-        filtered_df = pd.read_csv(filtered_path) if Path(filtered_path).exists() else pd.DataFrame()
-        candidates_df = pd.read_csv(candidates_path) if Path(candidates_path).exists() else pd.DataFrame()
+        with open(file_path, 'r') as f:
+            data = json.load(f)
         
-        # Combine the dataframes
-        assembly_data = []
-        
-        # Process filtered assemblies
-        if not filtered_df.empty:
-            for _, row in filtered_df.iterrows():
-                assembly_data.append({
-                    'FullSample': row.get('sample_name', ''),
-                    'estimated_coverage': row.get('estimated_coverage', 0),
-                    'status': 'filtered'
-                })
-        
-        # Process candidate assemblies
-        if not candidates_df.empty:
-            for _, row in candidates_df.iterrows():
-                assembly_data.append({
-                    'FullSample': row.get('sample_name', ''),
-                    'estimated_coverage': row.get('estimated_coverage', 0),
-                    'status': 'candidate'
-                })
-        
-        return pd.DataFrame(assembly_data)
+        results = []
+        for entry in data:
+            results.append({
+                'FullSample': entry.get('sample_name', ''),
+                'estimated_coverage': entry.get('estimated_coverage', 0)
+            })
+        return pd.DataFrame(results)
     except Exception as e:
-        print(f"Error parsing assembly files: {e}", file=sys.stderr)
+        print(f"Error parsing flye_preflight_summary.json: {e}", file=sys.stderr)
         return pd.DataFrame()
 
 def parse_assembly_summary(file_path):
@@ -106,8 +90,7 @@ def parse_transgene_count(file_path):
 def main():
     parser = argparse.ArgumentParser(description='Create simple results summary CSV')
     parser.add_argument('--nanostats', required=True, help='Path to nanostats_summary.json')
-    parser.add_argument('--assembly-filtered', required=True, help='Path to assembly_filtered.csv')
-    parser.add_argument('--assembly-candidates', required=True, help='Path to assembly_candidates.csv')
+    parser.add_argument('--preflight-summary', required=True, help='Path to flye_preflight_summary.json')
     parser.add_argument('--assembly-summary', required=True, help='Path to assembly_summary.json')
     parser.add_argument('--transgene-count', required=True, help='Path to transgene_count.json')
     parser.add_argument('--output', required=True, help='Output CSV file path')
@@ -118,8 +101,8 @@ def main():
     print("Parsing nanostats summary...")
     nanostats_df = parse_nanostats_summary(args.nanostats)
     
-    print("Parsing assembly files...")
-    assembly_df = parse_assembly_files(args.assembly_filtered, args.assembly_candidates)
+    print("Parsing preflight summary...")
+    preflight_df = parse_preflight_summary(args.preflight_summary)
     
     print("Parsing assembly summary...")
     assembly_summary_df = parse_assembly_summary(args.assembly_summary)
@@ -134,9 +117,9 @@ def main():
     else:
         final_df = nanostats_df.copy()
     
-    # Join with assembly data
-    if not assembly_df.empty and not final_df.empty:
-        final_df = final_df.merge(assembly_df, on='FullSample', how='left')
+    # Join with preflight data
+    if not preflight_df.empty and not final_df.empty:
+        final_df = final_df.merge(preflight_df, on='FullSample', how='left')
     
     # Join with assembly summary data
     if not assembly_summary_df.empty and not final_df.empty:
@@ -152,7 +135,7 @@ def main():
         if col in final_df.columns:
             final_df[col] = final_df[col].fillna(0)
     
-    string_columns = ['BaseSample', 'FullSample', 'Category', 'status', 'contig_names']
+    string_columns = ['BaseSample', 'FullSample', 'Category', 'contig_names']
     for col in string_columns:
         if col in final_df.columns:
             final_df[col] = final_df[col].fillna('')
@@ -167,7 +150,7 @@ def main():
         # Create empty CSV with headers
         empty_df = pd.DataFrame(columns=[
             'BaseSample', 'FullSample', 'Category', 'ReadCount', 'MeanLength',
-            'estimated_coverage', 'status', 'Fragments', 'Mean_coverage',
+            'estimated_coverage', 'Fragments', 'Mean_coverage',
             'full_length_count', 'contig_names'
         ])
         empty_df.to_csv(args.output, index=False)

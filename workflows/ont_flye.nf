@@ -241,12 +241,11 @@ workflow ONT_FLYE {
 
         // results summary (simple version)
         SIMPLE_RESULTS_SUMMARY(
-        PARSE_NANOSTATS.out.summary_json,
-        FILTER_ASSEMBLY_CANDIDATES.out.filtered_csv,
-        PARSE_PREFLIGHT_RESULTS.out.preflight_csv ,
-        GATHER_ASSEMBLY_STATS.out.assembly_stats,
-        PARSE_TRANSGENE_BLAST.out.json_results
-    )
+            PARSE_NANOSTATS.out.summary_json,
+            PARSE_PREFLIGHT_RESULTS.out.preflight_json,
+            GATHER_ASSEMBLY_STATS.out.assembly_stats,
+            PARSE_TRANSGENE_BLAST.out.json_results
+        )
 
     emit:
         // Emit the key outputs for FASTQ generation phase

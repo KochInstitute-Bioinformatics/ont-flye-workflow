@@ -3,8 +3,7 @@ process SIMPLE_RESULTS_SUMMARY {
     
     input:
     path nanostats_summary
-    path assembly_filtered
-    path assembly_candidates  
+    path preflight_summary
     path assembly_summary
     path transgene_count
     
@@ -14,10 +13,9 @@ process SIMPLE_RESULTS_SUMMARY {
     
     script:
     """
-    simple_summary.py \\
+    python simple_summary.py \\
         --nanostats ${nanostats_summary} \\
-        --assembly-filtered ${assembly_filtered} \\
-        --assembly-candidates ${assembly_candidates} \\
+        --preflight-summary ${preflight_summary} \\
         --assembly-summary ${assembly_summary} \\
         --transgene-count ${transgene_count} \\
         --output simple_results_summary.csv
@@ -25,6 +23,7 @@ process SIMPLE_RESULTS_SUMMARY {
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
         python: \$(python --version | sed 's/Python //g')
+        pandas: \$(python -c "import pandas; print(pandas.__version__)")
     END_VERSIONS
     """
 }
