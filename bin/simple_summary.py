@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 import json
 import pandas as pd
 import argparse
@@ -21,6 +20,7 @@ def parse_nanostats_summary(file_path):
                 'ReadCount': float(entry.get('ReadCount', 0)),  # Convert to float
                 'MeanLength': float(entry.get('MeanLength', 0.0))  # Convert to float
             })
+        
         return pd.DataFrame(results)
     except Exception as e:
         print(f"Error parsing nanostats_summary.json: {e}", file=sys.stderr)
@@ -38,19 +38,19 @@ def parse_preflight_summary(file_path):
                 'FullSample': entry.get('FullSample', ''),  # Note: using FullSample, not sample_name
                 'estimated_coverage': float(entry.get('EstimatedCoverage', 0))  # Note: EstimatedCoverage not estimated_coverage
             })
+        
         return pd.DataFrame(results)
     except Exception as e:
         print(f"Error parsing flye_preflight_summary.json: {e}", file=sys.stderr)
         return pd.DataFrame()
 
 def parse_assembly_summary(file_path):
-    """Parse assembly_summary.json for Fragments and Mean coverage from flye_log section"""
+    """Parse assembly_summary.json for Fragments, Mean coverage, and N50 from flye_log section"""
     try:
         with open(file_path, 'r') as f:
             data = json.load(f)
         
         results = []
-        
         # Handle the nested structure - data is a dict with sample names as keys
         for sample_key, sample_data in data.items():
             # Get the sample_name from within the sample_data
@@ -59,18 +59,21 @@ def parse_assembly_summary(file_path):
             # Look for flye_log data (note: underscore, not dot!)
             flye_log = sample_data.get('flye_log', {})
             
-            # Extract Fragments and Mean coverage
+            # Extract Fragments, Mean coverage, and N50
             fragments = 0
             mean_coverage = 0.0
+            n50 = 0
             
             if isinstance(flye_log, dict):
                 fragments = int(flye_log.get('Fragments', 0)) if flye_log.get('Fragments') else 0
                 mean_coverage = float(flye_log.get('Mean coverage', 0.0)) if flye_log.get('Mean coverage') else 0.0
+                n50 = int(flye_log.get('N50', 0)) if flye_log.get('N50') else 0
             
             results.append({
                 'FullSample': sample_name,
                 'Fragments': fragments,
-                'Mean_coverage': mean_coverage
+                'Mean_coverage': mean_coverage,
+                'N50': n50
             })
         
         return pd.DataFrame(results)
@@ -164,7 +167,7 @@ def main():
         final_df = final_df.merge(transgene_df, on='FullSample', how='left')
     
     # Fill NaN values with appropriate defaults
-    numeric_columns = ['ReadCount', 'MeanLength', 'estimated_coverage', 'Fragments', 'Mean_coverage', 'full_length_count']
+    numeric_columns = ['ReadCount', 'MeanLength', 'estimated_coverage', 'Fragments', 'Mean_coverage', 'N50', 'full_length_count']
     for col in numeric_columns:
         if col in final_df.columns:
             final_df[col] = final_df[col].fillna(0)
@@ -184,7 +187,7 @@ def main():
         # Create empty CSV with headers
         empty_df = pd.DataFrame(columns=[
             'BaseSample', 'FullSample', 'Category', 'ReadCount', 'MeanLength',
-            'estimated_coverage', 'Fragments', 'Mean_coverage',
+            'estimated_coverage', 'Fragments', 'Mean_coverage', 'N50',
             'full_length_count', 'contig_names'
         ])
         empty_df.to_csv(args.output, index=False)
