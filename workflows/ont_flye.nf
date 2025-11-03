@@ -257,10 +257,11 @@ TRANSGENE_BLAST(blast_input)
 // PHASE 7: PARSE TRANSGENE BLAST RESULTS
 // ========================================
 
-// Collect all BLAST result files - correct tuple destructuring for 2 elements
+// Collect all BLAST result files with unique names to avoid collisions
 all_blast_results = TRANSGENE_BLAST.out.blast_results
-    .map { _sample_name, blast_file ->
-        blast_file
+    .collectFile() { sample_name, blast_file ->
+        // Use sample name to create unique filenames
+        ["${sample_name}.blast.txt", blast_file.text]
     }
     .collect()
 
