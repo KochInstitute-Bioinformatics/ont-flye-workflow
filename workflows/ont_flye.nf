@@ -19,7 +19,7 @@ main:
 // Create input channel from samples.csv with validation and per-sample parameters
 if (params.samples) {
     // CSV input method with file validation and parameter parsing
-    input_ch = Channel
+    input_ch = channel
         .fromPath(params.samples, checkIfExists: true)
         .splitCsv(header: true, sep: ';')  // Use semicolon separator
         .map { row ->
@@ -100,7 +100,7 @@ if (params.samples) {
         [min: 50000, max: null, name: "50k_Plus"]
     ]
     def default_downsample_rates = [0.25, 0.5]
-    input_ch = Channel.of([params.name, file(params.input_fastq, checkIfExists: true), transgene, default_size_ranges, default_downsample_rates])
+    input_ch = channel.of([params.name, file(params.input_fastq, checkIfExists: true), transgene, default_size_ranges, default_downsample_rates])
 }
 
 // ========================================
@@ -130,7 +130,7 @@ CHOPPER(filter_combinations)
 downsample_script = file("${projectDir}/bin/downsample_fastq.py", checkIfExists: true)
 
 // Create replicate numbers channel
-replicate_numbers = Channel.from(1..params.replicates)
+replicate_numbers = channel.from(1..params.replicates)
 
 // Create downsample combinations using per-sample downsample rates
 // First, create a lookup map for sample-specific downsample rates
@@ -194,7 +194,9 @@ PARSE_PREFLIGHT_RESULTS(all_preflight_logs, parse_preflight_script)
 
 // Filter assembly candidates based on coverage criteria
 FILTER_ASSEMBLY_CANDIDATES(
-    PARSE_PREFLIGHT_RESULTS.out.preflight_csv
+    PARSE_PREFLIGHT_RESULTS.out.preflight_csv,
+    params.min_assembly_depth,
+    params.max_assembly_depth
 )
 
 // Create channel of FASTQ files that should be assembled
@@ -222,7 +224,7 @@ FLYE(assembly_candidates)
 // ========================================
 
 // Create transgene channel from CSV file
-transgene_ch = Channel
+transgene_ch = channel
     .fromPath(params.transgene_library, checkIfExists: true)
     .splitCsv(header: true)
     .map { row ->

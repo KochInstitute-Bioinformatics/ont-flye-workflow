@@ -3,6 +3,8 @@ process FILTER_ASSEMBLY_CANDIDATES {
     
     input:
     path preflight_summary_csv
+    val min_depth
+    val max_depth
     
     output:
     path "assembly_candidates.csv", emit: candidates_csv
@@ -17,7 +19,12 @@ process FILTER_ASSEMBLY_CANDIDATES {
     # Read preflight results
     preflight_df = pd.read_csv('${preflight_summary_csv}')
     
-    # Filter based on coverage criteria (10 < coverage < 300)
+    # Filter based on coverage criteria
+    min_coverage = ${min_depth}
+    max_coverage = ${max_depth}
+    
+    print(f"Filtering samples with coverage thresholds: {min_coverage} < coverage < {max_coverage}")
+    
     candidates = []
     filtered_out = []
     
@@ -25,14 +32,14 @@ process FILTER_ASSEMBLY_CANDIDATES {
         sample_name = row['FullSample']
         coverage = float(row['EstimatedCoverage']) if row['EstimatedCoverage'] else 0
         
-        if 10 < coverage < 300:
+        if min_coverage < coverage < max_coverage:
             candidates.append({
                 'sample_name': sample_name,
                 'estimated_coverage': coverage,
                 'status': 'selected_for_assembly'
             })
         else:
-            reason = 'coverage_too_low' if coverage <= 10 else 'coverage_too_high'
+            reason = 'coverage_too_low' if coverage <= min_coverage else 'coverage_too_high'
             filtered_out.append({
                 'sample_name': sample_name,
                 'estimated_coverage': coverage,
