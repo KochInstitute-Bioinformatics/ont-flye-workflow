@@ -65,14 +65,17 @@ process CALCULATE_ALIGNMENT_STATS {
     samtools coverage ${alignment_bam} > ${sample_name}_coverage.txt
     
     # Parse and convert to JSON
-    python3 << 'EOF'
+    cat > parse_stats.py <<'PYSCRIPT'
 import json
 import re
+import sys
+
+sample_name = sys.argv[1]
 
 stats = {}
 
 # Parse flagstat
-with open('${sample_name}_flagstat.txt', 'r') as f:
+with open(f'{sample_name}_flagstat.txt', 'r') as f:
     for line in f:
         if 'mapped' in line and '%' in line:
             match = re.search(r'(\\d+)\\s+\\+\\s+\\d+\\s+mapped\\s+\\(([\\d.]+)%', line)
@@ -81,7 +84,7 @@ with open('${sample_name}_flagstat.txt', 'r') as f:
                 stats['mapping_rate'] = float(match.group(2))
 
 # Parse coverage
-with open('${sample_name}_coverage.txt', 'r') as f:
+with open(f'{sample_name}_coverage.txt', 'r') as f:
     next(f)  # Skip header
     coverage_sum = 0
     coverage_count = 0
@@ -97,12 +100,14 @@ with open('${sample_name}_coverage.txt', 'r') as f:
         stats['mean_coverage'] = coverage_sum / coverage_count
 
 # Write JSON
-with open('${sample_name}_alignment_stats.json', 'w') as f:
+with open(f'{sample_name}_alignment_stats.json', 'w') as f:
     json.dump({
-        'sample': '${sample_name}',
+        'sample': sample_name,
         'stats': stats
     }, f, indent=2)
-EOF
+PYSCRIPT
+
+    python3 parse_stats.py "${sample_name}"
     """
 }
 
@@ -120,12 +125,13 @@ process CALCULATE_ASSEMBLY_CONTIGUITY {
     
     script:
     """
-    python3 << 'EOF'
+    cat > calc_contiguity.py <<'PYSCRIPT'
 import json
+import sys
 from collections import defaultdict
 
 def parse_fasta(filename):
-    """Parse FASTA file and return list of sequence lengths"""
+    # Parse FASTA file and return list of sequence lengths
     lengths = []
     current_seq = []
     
@@ -145,7 +151,7 @@ def parse_fasta(filename):
     return lengths
 
 def calculate_nx(lengths, x=50):
-    """Calculate NX value (e.g., N50, N90)"""
+    # Calculate NX value (e.g., N50, N90)
     sorted_lengths = sorted(lengths, reverse=True)
     total_length = sum(sorted_lengths)
     target_length = total_length * (x / 100.0)
@@ -158,7 +164,7 @@ def calculate_nx(lengths, x=50):
     return 0
 
 def calculate_lx(lengths, x=50):
-    """Calculate LX value - number of contigs needed to reach X% of total length"""
+    # Calculate LX value - number of contigs needed to reach X% of total length
     sorted_lengths = sorted(lengths, reverse=True)
     total_length = sum(sorted_lengths)
     target_length = total_length * (x / 100.0)
@@ -170,12 +176,15 @@ def calculate_lx(lengths, x=50):
             return idx
     return len(sorted_lengths)
 
+sample_name = sys.argv[1]
+fasta_file = sys.argv[2]
+
 # Parse assembly
-lengths = parse_fasta('${assembly_fasta}')
+lengths = parse_fasta(fasta_file)
 
 # Calculate statistics
 stats = {
-    'sample': '${sample_name}',
+    'sample': sample_name,
     'num_contigs': len(lengths),
     'total_length': sum(lengths),
     'mean_length': sum(lengths) / len(lengths) if lengths else 0,
@@ -188,9 +197,11 @@ stats = {
 }
 
 # Write JSON
-with open('${sample_name}_contiguity.json', 'w') as f:
+with open(f'{sample_name}_contiguity.json', 'w') as f:
     json.dump(stats, f, indent=2)
-EOF
+PYSCRIPT
+
+    python3 calc_contiguity.py "${sample_name}" "${assembly_fasta}"
     """
 }
 
@@ -244,25 +255,30 @@ process ALIGN_TRANSCRIPTS_TO_ASSEMBLY {
     samtools flagstat ${sample_name}_transcripts.bam > ${sample_name}_transcript_flagstat.txt
     
     # Parse stats to JSON
-    python3 << 'EOF'
+    cat > parse_transcript_stats.py <<'PYSCRIPT'
 import json
 import re
+import sys
 
-with open('${sample_name}_transcript_flagstat.txt', 'r') as f:
+sample_name = sys.argv[1]
+
+with open(f'{sample_name}_transcript_flagstat.txt', 'r') as f:
     content = f.read()
     match = re.search(r'(\\d+)\\s+\\+\\s+\\d+\\s+mapped\\s+\\(([\\d.]+)%', content)
     if match:
         stats = {
-            'sample': '${sample_name}',
+            'sample': sample_name,
             'mapped_transcripts': int(match.group(1)),
             'transcript_mapping_rate': float(match.group(2))
         }
     else:
-        stats = {'sample': '${sample_name}', 'error': 'Could not parse stats'}
+        stats = {'sample': sample_name, 'error': 'Could not parse stats'}
 
-with open('${sample_name}_transcript_stats.json', 'w') as f:
+with open(f'{sample_name}_transcript_stats.json', 'w') as f:
     json.dump(stats, f, indent=2)
-EOF
+PYSCRIPT
+
+    python3 parse_transcript_stats.py "${sample_name}"
     """
 }
 
@@ -284,7 +300,7 @@ process GENERATE_EVALUATION_REPORT {
     script:
     """
     # Create a simple HTML report combining all metrics
-    python3 << 'EOF'
+    cat > generate_report.py <<'PYSCRIPT'
 import json
 import glob
 from datetime import datetime
@@ -456,7 +472,9 @@ summary = {
 
 with open('assembly_evaluation_summary.json', 'w') as f:
     json.dump(summary, f, indent=2)
-EOF
+PYSCRIPT
+
+    python3 generate_report.py
     """
 }
 
