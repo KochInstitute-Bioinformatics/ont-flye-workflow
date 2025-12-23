@@ -209,23 +209,17 @@ process IDENTIFY_STRUCTURAL_VARIANTS {
     tag "${sample_name}"
     publishDir "${params.outdir}/assembly_evaluation/structural_variants", mode: 'copy'
     
-    // Use a container with both samtools and sniffles
-    container 'quay.io/biocontainers/mulled-v2-f8c7e35468a942150a4c622dc5f5a4da238c6dc1:87c31447311144816b39f5b9f0f11b75351aa923-0'
+    container 'quay.io/biocontainers/sniffles:2.4--pyhdfd78af_0'
     
     input:
-    tuple val(sample_name), path(alignment_bam)
+    tuple val(sample_name), path(alignment_bam), path(alignment_bai)
     
     output:
     tuple val(sample_name), path("${sample_name}_sv.vcf"), emit: sv_vcf
     
     script:
     """
-    # Index BAM file if not already indexed
-    if [ ! -f ${alignment_bam}.bai ]; then
-        samtools index ${alignment_bam}
-    fi
-    
-    # Call structural variants using sniffles2
+    # BAM index file is already provided as input
     sniffles --input ${alignment_bam} \
         --vcf ${sample_name}_sv.vcf \
         --threads ${task.cpus}
@@ -846,9 +840,9 @@ if (params.run_assembly_evaluation && params.reference_genome) {
         FLYE.out.assembly_fasta
     )
     
-    // STEP 4: Identify structural variants using sniffles2
     IDENTIFY_STRUCTURAL_VARIANTS(
-        ALIGN_ASSEMBLY_TO_GENOME.out.alignment_bam
+    ALIGN_ASSEMBLY_TO_GENOME.out.alignment_bam
+        .join(ALIGN_ASSEMBLY_TO_GENOME.out.alignment_bai)
     )
     
     // STEP 5: Align transcripts to assembly (if transcripts provided)
