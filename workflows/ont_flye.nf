@@ -219,12 +219,16 @@ process IDENTIFY_STRUCTURAL_VARIANTS {
     
     script:
     """
+    # Index BAM file if not already indexed
+    if [ ! -f ${alignment_bam}.bai ]; then
+        samtools index ${alignment_bam}
+    fi
+    
     # Call structural variants using sniffles2
+    # Note: Sniffles 2.4+ uses simpler command-line syntax
     sniffles --input ${alignment_bam} \
         --vcf ${sample_name}_sv.vcf \
-        --threads ${task.cpus} \
-        --min-support 2 \
-        --min-svlen 50
+        --threads ${task.cpus}
     """
 }
 
