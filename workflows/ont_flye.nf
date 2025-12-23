@@ -228,7 +228,7 @@ transgene_ch = channel
     .fromPath(params.transgene_library, checkIfExists: true)
     .splitCsv(header: true)
     .map { row ->
-        [row.transgene_name, file("${params.transgeneDir}/${row.fasta_file}", checkIfExists: true)]
+        [row.transgene_name, file("${params.transgene_dir}/${row.fasta_file}", checkIfExists: true)]
     }
 
 // Combine assemblies with transgene information from input
@@ -339,6 +339,71 @@ SIMPLE_RESULTS_SUMMARY(
     simple_summary_script
 )
 
+// ========================================
+// PHASE 9: ASSEMBLY EVALUATION (OPTIONAL)
+// ========================================
+
+// Only run assembly evaluation if enabled and reference genome is provided
+if (params.run_assembly_evaluation && params.reference_genome) {
+    
+    log.info "Assembly evaluation enabled - will align assemblies to reference genome"
+    
+    // Prepare reference genome
+    reference_genome = file(params.reference_genome, checkIfExists: true)
+    
+    // Prepare transcripts FASTA (optional)
+    transcripts_fasta = params.transcripts_fasta ? 
+        file(params.transcripts_fasta, checkIfExists: true) : 
+        file('NO_FILE')
+    
+    // STEP 1: Align each assembly to the reference genome using minimap2
+    ALIGN_ASSEMBLY_TO_GENOME(
+        FLYE.out.assembly_fasta,
+        reference_genome
+    )
+    
+    // STEP 2: Calculate alignment statistics from BAM files
+    CALCULATE_ALIGNMENT_STATS(
+        ALIGN_ASSEMBLY_TO_GENOME.out.alignment_bam
+    )
+    
+    // STEP 3: Calculate assembly contiguity metrics (N50, L50, etc.)
+    CALCULATE_ASSEMBLY_CONTIGUITY(
+        FLYE.out.assembly_fasta
+    )
+    
+    // STEP 4: Identify structural variants using sniffles2
+    IDENTIFY_STRUCTURAL_VARIANTS(
+        ALIGN_ASSEMBLY_TO_GENOME.out.alignment_bam
+    )
+    
+    // STEP 5: Align transcripts to assembly (if transcripts provided)
+    if (params.transcripts_fasta) {
+        ALIGN_TRANSCRIPTS_TO_ASSEMBLY(
+            FLYE.out.assembly_fasta,
+            transcripts_fasta
+        )
+    }
+    
+    // STEP 6: Generate combined evaluation report
+    // Collect all evaluation metrics
+    alignment_stats = CALCULATE_ALIGNMENT_STATS.out.stats_json.collect()
+    contiguity_stats = CALCULATE_ASSEMBLY_CONTIGUITY.out.contiguity_json.collect()
+    sv_vcf_files = IDENTIFY_STRUCTURAL_VARIANTS.out.sv_vcf.collect()
+    
+    transcript_alignment_stats = params.transcripts_fasta ? 
+        ALIGN_TRANSCRIPTS_TO_ASSEMBLY.out.transcript_stats.collect() :
+        channel.value(file('NO_FILE'))
+    
+    GENERATE_EVALUATION_REPORT(
+        alignment_stats,
+        contiguity_stats,
+        sv_vcf_files,
+        transcript_alignment_stats,
+        file("${projectDir}/bin/generate_evaluation_report.py")
+    )
+}
+
 emit:
     // Emit the key outputs for FASTQ generation phase
     original_input = input_ch
@@ -354,4 +419,462 @@ emit:
     nanoplot_results = all_nanoplot_results
     nanostats_summary = PARSE_NANOSTATS.out.summary_csv
     assembly_summary = GATHER_ASSEMBLY_STATS.out.assembly_stats
+    
+    // Assembly evaluation outputs (only if enabled)
+    assembly_alignments = params.run_assembly_evaluation && params.reference_genome ? 
+        ALIGN_ASSEMBLY_TO_GENOME.out.alignment_bam : channel.empty()
+    alignment_stats = params.run_assembly_evaluation && params.reference_genome ? 
+        CALCULATE_ALIGNMENT_STATS.out.stats_json : channel.empty()
+    structural_variants = params.run_assembly_evaluation && params.reference_genome ? 
+        IDENTIFY_STRUCTURAL_VARIANTS.out.sv_vcf : channel.empty()
+    evaluation_report = params.run_assembly_evaluation && params.reference_genome ? 
+        GENERATE_EVALUATION_REPORT.out.report_html : channel.empty()
+}
+
+// ========================================
+// ASSEMBLY EVALUATION PROCESSES
+// ========================================
+
+process ALIGN_ASSEMBLY_TO_GENOME {
+    tag "${sample_name}"
+    publishDir "${params.outdir}/assembly_evaluation/alignments", mode: 'copy'
+    
+    container 'quay.io/biocontainers/minimap2:2.28--he4a0461_2'
+    
+    input:
+    tuple val(sample_name), path(assembly_fasta)
+    path reference_genome
+    
+    output:
+    tuple val(sample_name), path("${sample_name}.bam"), emit: alignment_bam
+    tuple val(sample_name), path("${sample_name}.bam.bai"), emit: alignment_bai
+    
+    script:
+    """
+    # Align assembly to reference using minimap2
+    minimap2 -ax asm5 -t ${task.cpus} \
+        ${reference_genome} \
+        ${assembly_fasta} \
+        | samtools sort -@ ${task.cpus} -o ${sample_name}.bam -
+    
+    # Index the BAM file
+    samtools index ${sample_name}.bam
+    """
+}
+
+process CALCULATE_ALIGNMENT_STATS {
+    tag "${sample_name}"
+    publishDir "${params.outdir}/assembly_evaluation/alignment_stats", mode: 'copy'
+    
+    container 'quay.io/biocontainers/samtools:1.21--h50ea8bc_0'
+    
+    input:
+    tuple val(sample_name), path(alignment_bam)
+    
+    output:
+    tuple val(sample_name), path("${sample_name}_alignment_stats.json"), emit: stats_json
+    tuple val(sample_name), path("${sample_name}_coverage.txt"), emit: coverage_txt
+    
+    script:
+    """
+    # Calculate basic alignment statistics
+    samtools flagstat ${alignment_bam} > ${sample_name}_flagstat.txt
+    samtools stats ${alignment_bam} > ${sample_name}_samtools_stats.txt
+    samtools coverage ${alignment_bam} > ${sample_name}_coverage.txt
+    
+    # Parse and convert to JSON
+    python3 << 'EOF'
+import json
+import re
+
+stats = {}
+
+# Parse flagstat
+with open('${sample_name}_flagstat.txt', 'r') as f:
+    for line in f:
+        if 'mapped' in line and '%' in line:
+            match = re.search(r'(\\d+)\\s+\\+\\s+\\d+\\s+mapped\\s+\\(([\\d.]+)%', line)
+            if match:
+                stats['mapped_reads'] = int(match.group(1))
+                stats['mapping_rate'] = float(match.group(2))
+
+# Parse coverage
+with open('${sample_name}_coverage.txt', 'r') as f:
+    next(f)  # Skip header
+    coverage_sum = 0
+    coverage_count = 0
+    for line in f:
+        parts = line.strip().split('\\t')
+        if len(parts) >= 7:
+            try:
+                coverage_sum += float(parts[6])  # meandepth column
+                coverage_count += 1
+            except ValueError:
+                pass
+    if coverage_count > 0:
+        stats['mean_coverage'] = coverage_sum / coverage_count
+
+# Write JSON
+with open('${sample_name}_alignment_stats.json', 'w') as f:
+    json.dump({
+        'sample': '${sample_name}',
+        'stats': stats
+    }, f, indent=2)
+EOF
+    """
+}
+
+process CALCULATE_ASSEMBLY_CONTIGUITY {
+    tag "${sample_name}"
+    publishDir "${params.outdir}/assembly_evaluation/contiguity", mode: 'copy'
+    
+    container 'quay.io/biocontainers/python:3.11'
+    
+    input:
+    tuple val(sample_name), path(assembly_fasta)
+    
+    output:
+    tuple val(sample_name), path("${sample_name}_contiguity.json"), emit: contiguity_json
+    
+    script:
+    """
+    python3 << 'EOF'
+import json
+from collections import defaultdict
+
+def parse_fasta(filename):
+    """Parse FASTA file and return list of sequence lengths"""
+    lengths = []
+    current_seq = []
+    
+    with open(filename, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith('>'):
+                if current_seq:
+                    lengths.append(len(''.join(current_seq)))
+                    current_seq = []
+            else:
+                current_seq.append(line)
+        
+        if current_seq:
+            lengths.append(len(''.join(current_seq)))
+    
+    return lengths
+
+def calculate_nx(lengths, x=50):
+    """Calculate NX value (e.g., N50, N90)"""
+    sorted_lengths = sorted(lengths, reverse=True)
+    total_length = sum(sorted_lengths)
+    target_length = total_length * (x / 100.0)
+    
+    cumsum = 0
+    for length in sorted_lengths:
+        cumsum += length
+        if cumsum >= target_length:
+            return length
+    return 0
+
+def calculate_lx(lengths, x=50):
+    """Calculate LX value - number of contigs needed to reach X% of total length"""
+    sorted_lengths = sorted(lengths, reverse=True)
+    total_length = sum(sorted_lengths)
+    target_length = total_length * (x / 100.0)
+    
+    cumsum = 0
+    for idx, length in enumerate(sorted_lengths, 1):
+        cumsum += length
+        if cumsum >= target_length:
+            return idx
+    return len(sorted_lengths)
+
+# Parse assembly
+lengths = parse_fasta('${assembly_fasta}')
+
+# Calculate statistics
+stats = {
+    'sample': '${sample_name}',
+    'num_contigs': len(lengths),
+    'total_length': sum(lengths),
+    'mean_length': sum(lengths) / len(lengths) if lengths else 0,
+    'min_length': min(lengths) if lengths else 0,
+    'max_length': max(lengths) if lengths else 0,
+    'n50': calculate_nx(lengths, 50),
+    'n90': calculate_nx(lengths, 90),
+    'l50': calculate_lx(lengths, 50),
+    'l90': calculate_lx(lengths, 90)
+}
+
+# Write JSON
+with open('${sample_name}_contiguity.json', 'w') as f:
+    json.dump(stats, f, indent=2)
+EOF
+    """
+}
+
+process IDENTIFY_STRUCTURAL_VARIANTS {
+    tag "${sample_name}"
+    publishDir "${params.outdir}/assembly_evaluation/structural_variants", mode: 'copy'
+    
+    container 'quay.io/biocontainers/sniffles:2.4--pyhdfd78af_0'
+    
+    input:
+    tuple val(sample_name), path(alignment_bam)
+    
+    output:
+    tuple val(sample_name), path("${sample_name}_sv.vcf"), emit: sv_vcf
+    
+    script:
+    """
+    # Call structural variants using sniffles2
+    sniffles --input ${alignment_bam} \
+        --vcf ${sample_name}_sv.vcf \
+        --threads ${task.cpus} \
+        --min-support 2 \
+        --min-svlen 50
+    """
+}
+
+process ALIGN_TRANSCRIPTS_TO_ASSEMBLY {
+    tag "${sample_name}"
+    publishDir "${params.outdir}/assembly_evaluation/transcript_alignments", mode: 'copy'
+    
+    container 'quay.io/biocontainers/minimap2:2.28--he4a0461_2'
+    
+    input:
+    tuple val(sample_name), path(assembly_fasta)
+    path transcripts_fasta
+    
+    output:
+    tuple val(sample_name), path("${sample_name}_transcripts.bam"), emit: transcript_bam
+    tuple val(sample_name), path("${sample_name}_transcript_stats.json"), emit: transcript_stats
+    
+    script:
+    """
+    # Align transcripts to assembly
+    minimap2 -ax splice -t ${task.cpus} \
+        ${assembly_fasta} \
+        ${transcripts_fasta} \
+        | samtools sort -@ ${task.cpus} -o ${sample_name}_transcripts.bam -
+    
+    # Calculate alignment statistics
+    samtools index ${sample_name}_transcripts.bam
+    samtools flagstat ${sample_name}_transcripts.bam > ${sample_name}_transcript_flagstat.txt
+    
+    # Parse stats to JSON
+    python3 << 'EOF'
+import json
+import re
+
+with open('${sample_name}_transcript_flagstat.txt', 'r') as f:
+    content = f.read()
+    match = re.search(r'(\\d+)\\s+\\+\\s+\\d+\\s+mapped\\s+\\(([\\d.]+)%', content)
+    if match:
+        stats = {
+            'sample': '${sample_name}',
+            'mapped_transcripts': int(match.group(1)),
+            'transcript_mapping_rate': float(match.group(2))
+        }
+    else:
+        stats = {'sample': '${sample_name}', 'error': 'Could not parse stats'}
+
+with open('${sample_name}_transcript_stats.json', 'w') as f:
+    json.dump(stats, f, indent=2)
+EOF
+    """
+}
+
+process GENERATE_EVALUATION_REPORT {
+    publishDir "${params.outdir}/assembly_evaluation", mode: 'copy'
+    
+    container 'quay.io/biocontainers/python:3.11'
+    
+    input:
+    path alignment_stats_files
+    path contiguity_stats_files
+    path sv_vcf_files
+    path transcript_stats_files
+    path report_script
+    
+    output:
+    path "assembly_evaluation_report.html", emit: report_html
+    path "assembly_evaluation_summary.json", emit: report_json
+    
+    script:
+    """
+    # Create a simple HTML report combining all metrics
+    python3 << 'EOF'
+import json
+import glob
+from datetime import datetime
+
+# Collect all stats
+alignment_stats = []
+for f in glob.glob('*_alignment_stats.json'):
+    with open(f) as fh:
+        alignment_stats.append(json.load(fh))
+
+contiguity_stats = []
+for f in glob.glob('*_contiguity.json'):
+    with open(f) as fh:
+        contiguity_stats.append(json.load(fh))
+
+sv_counts = {}
+for f in glob.glob('*_sv.vcf'):
+    sample = f.replace('_sv.vcf', '')
+    with open(f) as fh:
+        count = sum(1 for line in fh if not line.startswith('#'))
+    sv_counts[sample] = count
+
+transcript_stats = []
+for f in glob.glob('*_transcript_stats.json'):
+    try:
+        with open(f) as fh:
+            transcript_stats.append(json.load(fh))
+    except:
+        pass
+
+# Generate HTML report
+html = '''
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Assembly Evaluation Report</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h1 { color: #333; }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #4CAF50; color: white; }
+        tr:nth-child(even) { background-color: #f2f2f2; }
+        .metric-section { margin-top: 30px; }
+    </style>
+</head>
+<body>
+    <h1>Assembly Evaluation Report</h1>
+    <p>Generated: ''' + datetime.now().strftime('%Y-%m-%d %H:%M:%S') + '''</p>
+    
+    <div class="metric-section">
+        <h2>Contiguity Metrics</h2>
+        <table>
+            <tr>
+                <th>Sample</th>
+                <th>Contigs</th>
+                <th>Total Length</th>
+                <th>N50</th>
+                <th>L50</th>
+                <th>Max Length</th>
+            </tr>
+'''
+
+for stats in contiguity_stats:
+    html += f'''
+            <tr>
+                <td>{stats['sample']}</td>
+                <td>{stats['num_contigs']}</td>
+                <td>{stats['total_length']:,}</td>
+                <td>{stats['n50']:,}</td>
+                <td>{stats['l50']}</td>
+                <td>{stats['max_length']:,}</td>
+            </tr>
+'''
+
+html += '''
+        </table>
+    </div>
+    
+    <div class="metric-section">
+        <h2>Alignment Statistics</h2>
+        <table>
+            <tr>
+                <th>Sample</th>
+                <th>Mapped Reads</th>
+                <th>Mapping Rate (%)</th>
+                <th>Mean Coverage</th>
+            </tr>
+'''
+
+for stats in alignment_stats:
+    s = stats.get('stats', {})
+    html += f'''
+            <tr>
+                <td>{stats['sample']}</td>
+                <td>{s.get('mapped_reads', 'N/A')}</td>
+                <td>{s.get('mapping_rate', 'N/A')}</td>
+                <td>{s.get('mean_coverage', 'N/A'):.2f}</td>
+            </tr>
+'''
+
+html += '''
+        </table>
+    </div>
+    
+    <div class="metric-section">
+        <h2>Structural Variants</h2>
+        <table>
+            <tr>
+                <th>Sample</th>
+                <th>SV Count</th>
+            </tr>
+'''
+
+for sample, count in sv_counts.items():
+    html += f'''
+            <tr>
+                <td>{sample}</td>
+                <td>{count}</td>
+            </tr>
+'''
+
+html += '''
+        </table>
+    </div>
+'''
+
+if transcript_stats:
+    html += '''
+    <div class="metric-section">
+        <h2>Transcript Alignment</h2>
+        <table>
+            <tr>
+                <th>Sample</th>
+                <th>Mapped Transcripts</th>
+                <th>Mapping Rate (%)</th>
+            </tr>
+'''
+    for stats in transcript_stats:
+        html += f'''
+            <tr>
+                <td>{stats['sample']}</td>
+                <td>{stats.get('mapped_transcripts', 'N/A')}</td>
+                <td>{stats.get('transcript_mapping_rate', 'N/A')}</td>
+            </tr>
+'''
+    html += '''
+        </table>
+    </div>
+'''
+
+html += '''
+</body>
+</html>
+'''
+
+# Write HTML report
+with open('assembly_evaluation_report.html', 'w') as f:
+    f.write(html)
+
+# Write JSON summary
+summary = {
+    'generated': datetime.now().isoformat(),
+    'alignment_stats': alignment_stats,
+    'contiguity_stats': contiguity_stats,
+    'sv_counts': sv_counts,
+    'transcript_stats': transcript_stats
+}
+
+with open('assembly_evaluation_summary.json', 'w') as f:
+    json.dump(summary, f, indent=2)
+EOF
+    """
 }
