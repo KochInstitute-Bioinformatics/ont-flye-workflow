@@ -21,7 +21,7 @@ process ALIGN_ASSEMBLY_TO_GENOME {
     tag "${sample_name}"
     publishDir "${params.outdir}/assembly_evaluation/alignments", mode: 'copy'
     
-    container 'quay.io/biocontainers/minimap2:2.28--he4a0461_2'
+    container 'bumproo/general_genomics:latest'
     
     input:
     tuple val(sample_name), path(assembly_fasta)
@@ -48,7 +48,7 @@ process CALCULATE_ALIGNMENT_STATS {
     tag "${sample_name}"
     publishDir "${params.outdir}/assembly_evaluation/alignment_stats", mode: 'copy'
     
-    container 'quay.io/biocontainers/samtools:1.21--h50ea8bc_0'
+    container 'bumproo/general_genomics:latest'
     
     input:
     tuple val(sample_name), path(alignment_bam)
@@ -115,7 +115,7 @@ process CALCULATE_ASSEMBLY_CONTIGUITY {
     tag "${sample_name}"
     publishDir "${params.outdir}/assembly_evaluation/contiguity", mode: 'copy'
     
-    container 'quay.io/biocontainers/python:3.11'
+    container 'bumproo/general_genomics:latest'
     
     input:
     tuple val(sample_name), path(assembly_fasta)
@@ -230,7 +230,7 @@ process ALIGN_TRANSCRIPTS_TO_ASSEMBLY {
     tag "${sample_name}"
     publishDir "${params.outdir}/assembly_evaluation/transcript_alignments", mode: 'copy'
     
-    container 'quay.io/biocontainers/minimap2:2.28--he4a0461_2'
+    container 'bumproo/general_genomics:latest'
     
     input:
     tuple val(sample_name), path(assembly_fasta)
@@ -283,7 +283,7 @@ PYSCRIPT
 process GENERATE_EVALUATION_REPORT {
     publishDir "${params.outdir}/assembly_evaluation", mode: 'copy'
     
-    container 'quay.io/biocontainers/python:3.11'
+    container 'bumproo/general_genomics:latest'
     
     input:
     path alignment_stats_files
