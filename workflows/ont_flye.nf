@@ -209,7 +209,8 @@ process IDENTIFY_STRUCTURAL_VARIANTS {
     tag "${sample_name}"
     publishDir "${params.outdir}/assembly_evaluation/structural_variants", mode: 'copy'
     
-    container 'quay.io/biocontainers/sniffles:2.4--pyhdfd78af_0'
+    // Use a container with both samtools and sniffles
+    container 'quay.io/biocontainers/mulled-v2-f8c7e35468a942150a4c622dc5f5a4da238c6dc1:87c31447311144816b39f5b9f0f11b75351aa923-0'
     
     input:
     tuple val(sample_name), path(alignment_bam)
@@ -225,7 +226,6 @@ process IDENTIFY_STRUCTURAL_VARIANTS {
     fi
     
     # Call structural variants using sniffles2
-    # Note: Sniffles 2.4+ uses simpler command-line syntax
     sniffles --input ${alignment_bam} \
         --vcf ${sample_name}_sv.vcf \
         --threads ${task.cpus}
