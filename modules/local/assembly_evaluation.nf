@@ -307,9 +307,10 @@ process MAP_TRANSCRIPTS_TO_ASSEMBLY {
     # Map transcripts to assembly
     minimap2 -a ${final_assembly} ${transcripts_fasta} > transcripts_to_assembly.sam
     
-    # Convert SAM to BED using bedops sam2bed
-    sam2bed < transcripts_to_assembly.sam > ${sample_name}_transcripts_to_assembly.bed
+    # Convert SAM to BED using a local script
     
+    sam_to_bed.py transcripts_to_assembly.sam ${sample_name}_transcripts_to_assembly.bed
+
     # Clean up SAM file
     rm transcripts_to_assembly.sam
     
