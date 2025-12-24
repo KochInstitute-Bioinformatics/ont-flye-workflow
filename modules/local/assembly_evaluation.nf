@@ -48,8 +48,8 @@ process REPAIR_ASSEMBLY {
     script:
     """
     # Create working copies with standard names for the Python script
-    cp ${assembly_fasta} assembly.fasta
-    cp ${alignment_txt} assembly_to_genome.txt
+    cp input_assembly.fasta assembly.fasta
+    cp input_alignment.txt assembly_to_genome.txt
     
     # Run repair script (outputs to annotated_assembly.fasta)
     repair_assembly.py > ${sample_name}_repair_assembly.log
@@ -102,7 +102,7 @@ process FINALIZE_ASSEMBLY {
     publishDir "${params.outdir}/assembly_evaluation/${sample_name}/final", mode: 'copy'
     
     input:
-    tuple val(sample_name), path(annotated_assembly), path(alignment_txt)
+    tuple val(sample_name), path('input_annotated_assembly.fasta'), path('input_alignment.txt')
     
     output:
     tuple val(sample_name), path("${sample_name}_final_assembly.fasta"), emit: final_assembly
@@ -112,8 +112,8 @@ process FINALIZE_ASSEMBLY {
     script:
     """
     # Create working copies with standard names for the Python script
-    cp ${annotated_assembly} annotated_assembly.fasta
-    cp ${alignment_txt} annotated_assembly_to_genome.txt
+    cp input_annotated_assembly.fasta annotated_assembly.fasta
+    cp input_alignment.txt annotated_assembly_to_genome.txt
     
     # Run finalize script (outputs to final_assembly.fasta)
     final_assembly.py > ${sample_name}_finalize_assembly.log
