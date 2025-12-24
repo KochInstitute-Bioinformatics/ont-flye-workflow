@@ -38,7 +38,7 @@ process REPAIR_ASSEMBLY {
     publishDir "${params.outdir}/assembly_evaluation/${sample_name}/repaired", mode: 'copy'
     
     input:
-    tuple val(sample_name), path(assembly_fasta), path(alignment_txt)
+    tuple val(sample_name), path('input_assembly.fasta'), path('input_alignment.txt')
     
     output:
     tuple val(sample_name), path("${sample_name}_annotated_assembly.fasta"), emit: annotated_assembly
