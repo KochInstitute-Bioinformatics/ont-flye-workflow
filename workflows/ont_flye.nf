@@ -279,10 +279,7 @@ TRANSGENE_BLAST(blast_input)
 
 // Collect all BLAST result files with unique names to avoid collisions
 all_blast_results = TRANSGENE_BLAST.out.blast_results
-    .collectFile() { sample_name, blast_file ->
-        // Use sample name to create unique filenames
-        ["${sample_name}.blast.txt", blast_file.text]
-    }
+    .map { _sample_name, blast_file -> blast_file }
     .collect()
 
 // Get the parse script from bin directory
