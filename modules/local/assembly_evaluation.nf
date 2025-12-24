@@ -204,13 +204,16 @@ process BLAST_TRANSGENE_TO_ASSEMBLY {
     tuple val(sample_name), path(final_assembly), val(transgene_name), path(transgene_file)
     
     output:
-    tuple val(sample_name), path("${sample_name}_${transgene_name}_transgene_blast.txt"), val(transgene_name), emit: blast_results
+    tuple val(sample_name), path("${sample_name}_${transgene_name}_transgene_blast.txt"), val(transgene_name), path(final_assembly), emit: blast_results
     path "versions.yml", emit: versions
     
     script:
     """
+    # Create BLAST database from final assembly
+    makeblastdb -in ${final_assembly} -dbtype nucl -out assembly_db
+    
     # BLAST transgene against final assembly
-    blastn -query ${transgene_file} -subject ${final_assembly} \\
+    blastn -query ${transgene_file} -db assembly_db \\
         -outfmt 6 -out ${sample_name}_${transgene_name}_transgene_blast.txt
     
     # Create versions file
@@ -297,22 +300,24 @@ process MAP_TRANSCRIPTS_TO_ASSEMBLY {
     
     output:
     tuple val(sample_name), path("${sample_name}_transcripts_to_assembly.bed"), emit: transcript_bed
-    path "${sample_name}_transcripts_to_assembly.sam", emit: transcript_sam
     path "versions.yml", emit: versions
     
     script:
     """
     # Map transcripts to assembly
-    minimap2 -a ${final_assembly} ${transcripts_fasta} > ${sample_name}_transcripts_to_assembly.sam
+    minimap2 -a ${final_assembly} ${transcripts_fasta} > transcripts_to_assembly.sam
     
-    # Convert SAM to BED using bin script
-    sam_to_bed.py ${sample_name}_transcripts_to_assembly.sam ${sample_name}_transcripts_to_assembly.bed
+    # Convert SAM to BED using bedops sam2bed
+    sam2bed < transcripts_to_assembly.sam > ${sample_name}_transcripts_to_assembly.bed
+    
+    # Clean up SAM file
+    rm transcripts_to_assembly.sam
     
     # Create versions file
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
         minimap2: \$(minimap2 --version 2>&1)
-        python: \$(python3 --version 2>&1 | sed 's/Python //')
+        bedops: \$(sam2bed --version 2>&1 || echo "2.4.35")
     END_VERSIONS
     """
 }

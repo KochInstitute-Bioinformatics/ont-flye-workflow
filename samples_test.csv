@@ -1,3 +1,0 @@
-name;fastq;transgene;size_ranges;downsample_rates
-S-1077-1;/net/bmc-lab3/data/bcc/projects/cmelen-Love/072423_ONT/230718Lov/data/all_S-1077-1.fastq;superfolder_GFP;[{"min":40000,"name":"40k_Plus"},{"min":50000,"name":"50k_Plus"}];[0.2]
-d82.2;/net/bmc-lab3/data/bcc/projects/cmelen-Love/073123_ONT/230726Lov/data/all_82.2.fastq;A-vector_herceptin_pEY345;[{"min":30000,"name":"30k_Plus"}];[0.75]

@@ -233,6 +233,10 @@ assembly_candidates = FILTER_ASSEMBLY_CANDIDATES.out.candidates_csv
 // Run FLYE assembly only on candidates that passed coverage criteria
 FLYE(assembly_candidates)
 
+// Store assembly with its source FASTQ for downstream processes
+assembly_with_source_fastq = FLYE.out.assembly_fasta
+    .join(assembly_candidates, by: 0)  // Join by sample_name to get the FASTQ that was used
+
 // ========================================
 // PHASE 6: TRANSGENE BLAST ANALYSIS - Run on assembled genomes
 // ========================================
@@ -411,26 +415,11 @@ if (params.run_assembly_evaluation && params.reference_genome) {
     )
     
     // STEP 6: Map ONT reads to final assembly
+    // Use the tracked FASTQ file that was actually used for assembly
     final_with_reads = FINALIZE_ASSEMBLY.out.final_assembly
-        .join(FLYE.out.assembly_fasta.map { sample_name, fasta -> 
-            // Need to get the original FASTQ that was used for assembly
-            // This requires finding the matching input
-            tuple(sample_name)
-        })
-        .combine(input_ch)
-        .filter { sample_tuple, input_tuple ->
-            // Match sample names to get the correct FASTQ
-            def sample_id = sample_tuple[0]
-            def input_sample = input_tuple[0]
-            // Extract base sample name (remove size/downsample suffixes)
-            def base_sample = sample_id.replaceAll(/_\d+k_Plus.*/, '')
-            input_sample == base_sample
-        }
-        .map { sample_tuple, input_tuple ->
-            def sample_name = sample_tuple[0]
-            def final_fasta = sample_tuple[1]
-            def query_fastq = input_tuple[1]
-            tuple(sample_name, final_fasta, query_fastq)
+        .join(assembly_with_source_fastq, by: 0)
+        .map { sample_name, final_fasta, _assembly_fasta, source_fastq ->
+            tuple(sample_name, final_fasta, source_fastq)
         }
     
     MAP_READS_TO_ASSEMBLY(
@@ -438,32 +427,25 @@ if (params.run_assembly_evaluation && params.reference_genome) {
     )
     
     // STEP 7: BLAST transgene against final assembly
-    // Get transgene info from original input channel
-    transgene_info = input_ch
-        .map { sample_name, fastq_file, transgene_name, size_ranges, downsample_rates ->
+    // Create a map of base sample names to transgene info from input CSV
+    transgene_map = input_ch
+        .map { sample_name, _fastq_file, transgene_name, _size_ranges, _downsample_rates ->
             tuple(sample_name, transgene_name)
         }
         .unique()
     
-    // Load transgene sequences
-    transgene_fastas = transgene_info
-        .map { sample_name, transgene_name ->
-            def transgene_file = file("${params.transgene_dir}/${transgene_name}.fa", checkIfExists: true)
-            tuple(sample_name, transgene_name, transgene_file)
-        }
-    
     // Join final assemblies with transgene info
+    // Extract base sample name to match with original input
     final_with_transgene = FINALIZE_ASSEMBLY.out.final_assembly
-        .combine(transgene_info, by: 0)  // Join by sample_name
-        .map { sample_name, final_fasta, transgene_name ->
-            // Need to get the actual transgene file
+        .map { sample_name, final_fasta ->
+            // Extract base sample name (e.g., S-1077-1 from S-1077-1_70k_Plus_ds0.5_rep1)
             def base_sample = sample_name.replaceAll(/_\d+k_Plus.*/, '')
-            tuple(base_sample, final_fasta, transgene_name)
+            tuple(base_sample, sample_name, final_fasta)
         }
-        .combine(transgene_fastas, by: 0)
-        .map { base_sample, final_fasta, transgene_name_1, transgene_name_2, transgene_file ->
-            // Use the actual sample name (with size/downsample info)
-            tuple(base_sample, final_fasta, transgene_name_2, transgene_file)
+        .combine(transgene_map, by: 0)  // Join by base_sample
+        .map { _base_sample, full_sample_name, final_fasta, transgene_name ->
+            def transgene_file = file("${params.transgene_dir}/${transgene_name}.fa", checkIfExists: true)
+            tuple(full_sample_name, final_fasta, transgene_name, transgene_file)
         }
     
     BLAST_TRANSGENE_TO_ASSEMBLY(
@@ -473,7 +455,7 @@ if (params.run_assembly_evaluation && params.reference_genome) {
     // STEP 8: Convert BLAST results to BED format
     CONVERT_BLAST_TO_BED(
         BLAST_TRANSGENE_TO_ASSEMBLY.out.blast_results
-            .map { sample_name, blast_file, transgene_name, transgene_fasta ->
+            .map { sample_name, blast_file, transgene_name, _final_assembly ->
                 tuple(sample_name, blast_file, transgene_name)
             }
     )
