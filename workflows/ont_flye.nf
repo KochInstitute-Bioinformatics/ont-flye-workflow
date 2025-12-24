@@ -11,470 +11,16 @@ include { NANOPLOT as NANOPLOT_ORIGINAL } from '../modules/local/nanoplot'
 include { PARSE_TRANSGENE_BLAST } from '../modules/local/parse_transgene_blast'
 include { GATHER_ASSEMBLY_STATS } from '../modules/local/gather_assembly_stats'
 include { SIMPLE_RESULTS_SUMMARY } from '../modules/local/simple_results_summary'
+include { ALIGN_ASSEMBLY_TO_GENOME } from '../modules/local/assembly_evaluation'
+include { REPAIR_ASSEMBLY } from '../modules/local/assembly_evaluation'
+include { ALIGN_ANNOTATED_ASSEMBLY } from '../modules/local/assembly_evaluation'
+include { FINALIZE_ASSEMBLY } from '../modules/local/assembly_evaluation'
+include { ALIGN_FINAL_ASSEMBLY } from '../modules/local/assembly_evaluation'
+include { MAP_READS_TO_ASSEMBLY } from '../modules/local/assembly_evaluation'
+include { BLAST_TRANSGENE_TO_ASSEMBLY } from '../modules/local/assembly_evaluation'
+include { CONVERT_BLAST_TO_BED } from '../modules/local/assembly_evaluation'
+include { MAP_TRANSCRIPTS_TO_ASSEMBLY } from '../modules/local/assembly_evaluation'
 
-// ========================================
-// ASSEMBLY EVALUATION PROCESSES
-// These must be defined BEFORE the workflow block
-// ========================================
-
-process ALIGN_ASSEMBLY_TO_GENOME {
-    tag "${sample_name}"
-    publishDir "${params.outdir}/assembly_evaluation/alignments", mode: 'copy'
-    
-    container 'bumproo/general_genomics:latest'
-    
-    input:
-    tuple val(sample_name), path(assembly_fasta)
-    path reference_genome
-    
-    output:
-    tuple val(sample_name), path("${sample_name}.bam"), emit: alignment_bam
-    tuple val(sample_name), path("${sample_name}.bam.bai"), emit: alignment_bai
-    
-    script:
-    """
-    # Align assembly to reference using minimap2
-    minimap2 -ax asm5 -t ${task.cpus} \
-        ${reference_genome} \
-        ${assembly_fasta} \
-        | samtools sort -@ ${task.cpus} -o ${sample_name}.bam -
-    
-    # Index the BAM file
-    samtools index ${sample_name}.bam
-    """
-}
-
-process CALCULATE_ALIGNMENT_STATS {
-    tag "${sample_name}"
-    publishDir "${params.outdir}/assembly_evaluation/alignment_stats", mode: 'copy'
-    
-    container 'bumproo/general_genomics:latest'
-    
-    input:
-    tuple val(sample_name), path(alignment_bam)
-    
-    output:
-    tuple val(sample_name), path("${sample_name}_alignment_stats.json"), emit: stats_json
-    tuple val(sample_name), path("${sample_name}_coverage.txt"), emit: coverage_txt
-    
-    script:
-    """
-    # Calculate basic alignment statistics
-    samtools flagstat ${alignment_bam} > ${sample_name}_flagstat.txt
-    samtools stats ${alignment_bam} > ${sample_name}_samtools_stats.txt
-    samtools coverage ${alignment_bam} > ${sample_name}_coverage.txt
-    
-    # Parse and convert to JSON
-    cat > parse_stats.py <<'PYSCRIPT'
-import json
-import re
-import sys
-
-sample_name = sys.argv[1]
-
-stats = {}
-
-# Parse flagstat
-with open(f'{sample_name}_flagstat.txt', 'r') as f:
-    for line in f:
-        if 'mapped' in line and '%' in line:
-            match = re.search(r'(\\d+)\\s+\\+\\s+\\d+\\s+mapped\\s+\\(([\\d.]+)%', line)
-            if match:
-                stats['mapped_reads'] = int(match.group(1))
-                stats['mapping_rate'] = float(match.group(2))
-
-# Parse coverage
-with open(f'{sample_name}_coverage.txt', 'r') as f:
-    next(f)  # Skip header
-    coverage_sum = 0
-    coverage_count = 0
-    for line in f:
-        parts = line.strip().split('\\t')
-        if len(parts) >= 7:
-            try:
-                coverage_sum += float(parts[6])  # meandepth column
-                coverage_count += 1
-            except ValueError:
-                pass
-    if coverage_count > 0:
-        stats['mean_coverage'] = coverage_sum / coverage_count
-
-# Write JSON
-with open(f'{sample_name}_alignment_stats.json', 'w') as f:
-    json.dump({
-        'sample': sample_name,
-        'stats': stats
-    }, f, indent=2)
-PYSCRIPT
-
-    python3 parse_stats.py "${sample_name}"
-    """
-}
-
-process CALCULATE_ASSEMBLY_CONTIGUITY {
-    tag "${sample_name}"
-    publishDir "${params.outdir}/assembly_evaluation/contiguity", mode: 'copy'
-    
-    container 'bumproo/general_genomics:latest'
-    
-    input:
-    tuple val(sample_name), path(assembly_fasta)
-    
-    output:
-    tuple val(sample_name), path("${sample_name}_contiguity.json"), emit: contiguity_json
-    
-    script:
-    """
-    cat > calc_contiguity.py <<'PYSCRIPT'
-import json
-import sys
-from collections import defaultdict
-
-def parse_fasta(filename):
-    # Parse FASTA file and return list of sequence lengths
-    lengths = []
-    current_seq = []
-    
-    with open(filename, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if line.startswith('>'):
-                if current_seq:
-                    lengths.append(len(''.join(current_seq)))
-                    current_seq = []
-            else:
-                current_seq.append(line)
-        
-        if current_seq:
-            lengths.append(len(''.join(current_seq)))
-    
-    return lengths
-
-def calculate_nx(lengths, x=50):
-    # Calculate NX value (e.g., N50, N90)
-    sorted_lengths = sorted(lengths, reverse=True)
-    total_length = sum(sorted_lengths)
-    target_length = total_length * (x / 100.0)
-    
-    cumsum = 0
-    for length in sorted_lengths:
-        cumsum += length
-        if cumsum >= target_length:
-            return length
-    return 0
-
-def calculate_lx(lengths, x=50):
-    # Calculate LX value - number of contigs needed to reach X% of total length
-    sorted_lengths = sorted(lengths, reverse=True)
-    total_length = sum(sorted_lengths)
-    target_length = total_length * (x / 100.0)
-    
-    cumsum = 0
-    for idx, length in enumerate(sorted_lengths, 1):
-        cumsum += length
-        if cumsum >= target_length:
-            return idx
-    return len(sorted_lengths)
-
-sample_name = sys.argv[1]
-fasta_file = sys.argv[2]
-
-# Parse assembly
-lengths = parse_fasta(fasta_file)
-
-# Calculate statistics
-stats = {
-    'sample': sample_name,
-    'num_contigs': len(lengths),
-    'total_length': sum(lengths),
-    'mean_length': sum(lengths) / len(lengths) if lengths else 0,
-    'min_length': min(lengths) if lengths else 0,
-    'max_length': max(lengths) if lengths else 0,
-    'n50': calculate_nx(lengths, 50),
-    'n90': calculate_nx(lengths, 90),
-    'l50': calculate_lx(lengths, 50),
-    'l90': calculate_lx(lengths, 90)
-}
-
-# Write JSON
-with open(f'{sample_name}_contiguity.json', 'w') as f:
-    json.dump(stats, f, indent=2)
-PYSCRIPT
-
-    python3 calc_contiguity.py "${sample_name}" "${assembly_fasta}"
-    """
-}
-
-process IDENTIFY_STRUCTURAL_VARIANTS {
-    tag "${sample_name}"
-    publishDir "${params.outdir}/assembly_evaluation/structural_variants", mode: 'copy'
-    
-    container 'quay.io/biocontainers/sniffles:2.4--pyhdfd78af_0'
-    
-    input:
-    tuple val(sample_name), path(alignment_bam), path(alignment_bai)
-    
-    output:
-    tuple val(sample_name), path("${sample_name}_sv.vcf"), emit: sv_vcf
-    
-    script:
-    """
-    # BAM index file is already provided as input
-    sniffles --input ${alignment_bam} \
-        --vcf ${sample_name}_sv.vcf \
-        --threads ${task.cpus}
-    """
-}
-
-process ALIGN_TRANSCRIPTS_TO_ASSEMBLY {
-    tag "${sample_name}"
-    publishDir "${params.outdir}/assembly_evaluation/transcript_alignments", mode: 'copy'
-    
-    container 'bumproo/general_genomics:latest'
-    
-    input:
-    tuple val(sample_name), path(assembly_fasta)
-    path transcripts_fasta
-    
-    output:
-    tuple val(sample_name), path("${sample_name}_transcripts.bam"), emit: transcript_bam
-    tuple val(sample_name), path("${sample_name}_transcript_stats.json"), emit: transcript_stats
-    
-    script:
-    """
-    # Align transcripts to assembly
-    minimap2 -ax splice -t ${task.cpus} \
-        ${assembly_fasta} \
-        ${transcripts_fasta} \
-        | samtools sort -@ ${task.cpus} -o ${sample_name}_transcripts.bam -
-    
-    # Calculate alignment statistics
-    samtools index ${sample_name}_transcripts.bam
-    samtools flagstat ${sample_name}_transcripts.bam > ${sample_name}_transcript_flagstat.txt
-    
-    # Parse stats to JSON
-    cat > parse_transcript_stats.py <<'PYSCRIPT'
-import json
-import re
-import sys
-
-sample_name = sys.argv[1]
-
-with open(f'{sample_name}_transcript_flagstat.txt', 'r') as f:
-    content = f.read()
-    match = re.search(r'(\\d+)\\s+\\+\\s+\\d+\\s+mapped\\s+\\(([\\d.]+)%', content)
-    if match:
-        stats = {
-            'sample': sample_name,
-            'mapped_transcripts': int(match.group(1)),
-            'transcript_mapping_rate': float(match.group(2))
-        }
-    else:
-        stats = {'sample': sample_name, 'error': 'Could not parse stats'}
-
-with open(f'{sample_name}_transcript_stats.json', 'w') as f:
-    json.dump(stats, f, indent=2)
-PYSCRIPT
-
-    python3 parse_transcript_stats.py "${sample_name}"
-    """
-}
-
-process GENERATE_EVALUATION_REPORT {
-    publishDir "${params.outdir}/assembly_evaluation", mode: 'copy'
-    
-    container 'bumproo/general_genomics:latest'
-    
-    input:
-    path alignment_stats_files
-    path contiguity_stats_files
-    path sv_vcf_files
-    path transcript_stats_files
-    
-    output:
-    path "assembly_evaluation_report.html", emit: report_html
-    path "assembly_evaluation_summary.json", emit: report_json
-    
-    script:
-    """
-    # Create a simple HTML report combining all metrics
-    cat > generate_report.py <<'PYSCRIPT'
-import json
-import glob
-from datetime import datetime
-
-# Collect all stats
-alignment_stats = []
-for f in glob.glob('*_alignment_stats.json'):
-    with open(f) as fh:
-        alignment_stats.append(json.load(fh))
-
-contiguity_stats = []
-for f in glob.glob('*_contiguity.json'):
-    with open(f) as fh:
-        contiguity_stats.append(json.load(fh))
-
-sv_counts = {}
-for f in glob.glob('*_sv.vcf'):
-    sample = f.replace('_sv.vcf', '')
-    with open(f) as fh:
-        count = sum(1 for line in fh if not line.startswith('#'))
-    sv_counts[sample] = count
-
-transcript_stats = []
-for f in glob.glob('*_transcript_stats.json'):
-    try:
-        with open(f) as fh:
-            transcript_stats.append(json.load(fh))
-    except:
-        pass
-
-# Generate HTML report
-html = '''
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Assembly Evaluation Report</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        h1 { color: #333; }
-        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #4CAF50; color: white; }
-        tr:nth-child(even) { background-color: #f2f2f2; }
-        .metric-section { margin-top: 30px; }
-    </style>
-</head>
-<body>
-    <h1>Assembly Evaluation Report</h1>
-    <p>Generated: ''' + datetime.now().strftime('%Y-%m-%d %H:%M:%S') + '''</p>
-    
-    <div class="metric-section">
-        <h2>Contiguity Metrics</h2>
-        <table>
-            <tr>
-                <th>Sample</th>
-                <th>Contigs</th>
-                <th>Total Length</th>
-                <th>N50</th>
-                <th>L50</th>
-                <th>Max Length</th>
-            </tr>
-'''
-
-for stats in contiguity_stats:
-    html += f'''
-            <tr>
-                <td>{stats['sample']}</td>
-                <td>{stats['num_contigs']}</td>
-                <td>{stats['total_length']:,}</td>
-                <td>{stats['n50']:,}</td>
-                <td>{stats['l50']}</td>
-                <td>{stats['max_length']:,}</td>
-            </tr>
-'''
-
-html += '''
-        </table>
-    </div>
-    
-    <div class="metric-section">
-        <h2>Alignment Statistics</h2>
-        <table>
-            <tr>
-                <th>Sample</th>
-                <th>Mapped Reads</th>
-                <th>Mapping Rate (%)</th>
-                <th>Mean Coverage</th>
-            </tr>
-'''
-
-for stats in alignment_stats:
-    s = stats.get('stats', {})
-    html += f'''
-            <tr>
-                <td>{stats['sample']}</td>
-                <td>{s.get('mapped_reads', 'N/A')}</td>
-                <td>{s.get('mapping_rate', 'N/A')}</td>
-                <td>{s.get('mean_coverage', 'N/A'):.2f}</td>
-            </tr>
-'''
-
-html += '''
-        </table>
-    </div>
-    
-    <div class="metric-section">
-        <h2>Structural Variants</h2>
-        <table>
-            <tr>
-                <th>Sample</th>
-                <th>SV Count</th>
-            </tr>
-'''
-
-for sample, count in sv_counts.items():
-    html += f'''
-            <tr>
-                <td>{sample}</td>
-                <td>{count}</td>
-            </tr>
-'''
-
-html += '''
-        </table>
-    </div>
-'''
-
-if transcript_stats:
-    html += '''
-    <div class="metric-section">
-        <h2>Transcript Alignment</h2>
-        <table>
-            <tr>
-                <th>Sample</th>
-                <th>Mapped Transcripts</th>
-                <th>Mapping Rate (%)</th>
-            </tr>
-'''
-    for stats in transcript_stats:
-        html += f'''
-            <tr>
-                <td>{stats['sample']}</td>
-                <td>{stats.get('mapped_transcripts', 'N/A')}</td>
-                <td>{stats.get('transcript_mapping_rate', 'N/A')}</td>
-            </tr>
-'''
-    html += '''
-        </table>
-    </div>
-'''
-
-html += '''
-</body>
-</html>
-'''
-
-# Write HTML report
-with open('assembly_evaluation_report.html', 'w') as f:
-    f.write(html)
-
-# Write JSON summary
-summary = {
-    'generated': datetime.now().isoformat(),
-    'alignment_stats': alignment_stats,
-    'contiguity_stats': contiguity_stats,
-    'sv_counts': sv_counts,
-    'transcript_stats': transcript_stats
-}
-
-with open('assembly_evaluation_summary.json', 'w') as f:
-    json.dump(summary, f, indent=2)
-PYSCRIPT
-
-    python3 generate_report.py
-    """
-}
 
 // ========================================
 // MAIN WORKFLOW
@@ -811,10 +357,9 @@ SIMPLE_RESULTS_SUMMARY(
 // PHASE 9: ASSEMBLY EVALUATION (OPTIONAL)
 // ========================================
 
-// Only run assembly evaluation if enabled and reference genome is provided
 if (params.run_assembly_evaluation && params.reference_genome) {
     
-    log.info "Assembly evaluation enabled - will align assemblies to reference genome"
+    log.info "Assembly evaluation enabled - running complete refinement pipeline"
     
     // Prepare reference genome
     reference_genome = file(params.reference_genome, checkIfExists: true)
@@ -822,62 +367,124 @@ if (params.run_assembly_evaluation && params.reference_genome) {
     // Prepare transcripts FASTA (optional)
     transcripts_fasta = params.transcripts_fasta ? 
         file(params.transcripts_fasta, checkIfExists: true) : 
-        file('NO_FILE')
+        null
     
-    // STEP 1: Align each assembly to the reference genome using minimap2
+    // Prepare assembly input with reference genome
+    assembly_with_ref = FLYE.out.assembly_fasta
+        .map { sample_name, assembly_fasta -> 
+            tuple(sample_name, assembly_fasta, reference_genome)
+        }
+    
+    // STEP 1: Align assembly to reference genome
     ALIGN_ASSEMBLY_TO_GENOME(
-        FLYE.out.assembly_fasta,
-        reference_genome
+        assembly_with_ref
     )
     
-    // STEP 2: Calculate alignment statistics from BAM files
-    CALCULATE_ALIGNMENT_STATS(
-        ALIGN_ASSEMBLY_TO_GENOME.out.alignment_bam
+    // STEP 2: Repair and annotate assembly based on alignment
+    REPAIR_ASSEMBLY(
+        ALIGN_ASSEMBLY_TO_GENOME.out.alignment
     )
     
-    // STEP 3: Calculate assembly contiguity metrics (N50, L50, etc.)
-    CALCULATE_ASSEMBLY_CONTIGUITY(
-        FLYE.out.assembly_fasta
+    // STEP 3: Align annotated assembly to reference
+    annotated_with_ref = REPAIR_ASSEMBLY.out.annotated_assembly
+        .map { sample_name, annotated_fasta ->
+            tuple(sample_name, annotated_fasta, reference_genome)
+        }
+    
+    ALIGN_ANNOTATED_ASSEMBLY(
+        annotated_with_ref
     )
     
-    IDENTIFY_STRUCTURAL_VARIANTS(
-    ALIGN_ASSEMBLY_TO_GENOME.out.alignment_bam
-        .join(ALIGN_ASSEMBLY_TO_GENOME.out.alignment_bai)
+    // STEP 4: Finalize assembly (concatenate chromosomal contigs)
+    FINALIZE_ASSEMBLY(
+        ALIGN_ANNOTATED_ASSEMBLY.out.alignment
     )
     
-    // STEP 5: Align transcripts to assembly (if transcripts provided)
+    // STEP 5: Align final assembly to reference
+    final_with_ref = FINALIZE_ASSEMBLY.out.final_assembly
+        .map { sample_name, final_fasta ->
+            tuple(sample_name, final_fasta, reference_genome)
+        }
+    
+    ALIGN_FINAL_ASSEMBLY(
+        final_with_ref
+    )
+    
+    // STEP 6: Map ONT reads to final assembly
+    final_with_reads = FINALIZE_ASSEMBLY.out.final_assembly
+        .join(FLYE.out.assembly_fasta.map { sample_name, fasta -> 
+            // Need to get the original FASTQ that was used for assembly
+            // This requires finding the matching input
+            tuple(sample_name)
+        })
+        .combine(input_ch)
+        .filter { sample_tuple, input_tuple ->
+            // Match sample names to get the correct FASTQ
+            def sample_id = sample_tuple[0]
+            def input_sample = input_tuple[0]
+            // Extract base sample name (remove size/downsample suffixes)
+            def base_sample = sample_id.replaceAll(/_\d+k_Plus.*/, '')
+            input_sample == base_sample
+        }
+        .map { sample_tuple, input_tuple ->
+            def sample_name = sample_tuple[0]
+            def final_fasta = sample_tuple[1]
+            def query_fastq = input_tuple[1]
+            tuple(sample_name, final_fasta, query_fastq)
+        }
+    
+    MAP_READS_TO_ASSEMBLY(
+        final_with_reads
+    )
+    
+    // STEP 7: BLAST transgene against final assembly
+    // Get transgene info from original input channel
+    transgene_info = input_ch
+        .map { sample_name, fastq_file, transgene_name, size_ranges, downsample_rates ->
+            tuple(sample_name, transgene_name)
+        }
+        .unique()
+    
+    // Load transgene sequences
+    transgene_fastas = transgene_info
+        .map { sample_name, transgene_name ->
+            def transgene_file = file("${params.transgene_dir}/${transgene_name}.fa", checkIfExists: true)
+            tuple(sample_name, transgene_name, transgene_file)
+        }
+    
+    // Join final assemblies with transgene info
+    final_with_transgene = FINALIZE_ASSEMBLY.out.final_assembly
+        .combine(transgene_info, by: 0)  // Join by sample_name
+        .map { sample_name, final_fasta, transgene_name ->
+            // Need to get the actual transgene file
+            def base_sample = sample_name.replaceAll(/_\d+k_Plus.*/, '')
+            tuple(base_sample, final_fasta, transgene_name)
+        }
+        .combine(transgene_fastas, by: 0)
+        .map { base_sample, final_fasta, transgene_name_1, transgene_name_2, transgene_file ->
+            // Use the actual sample name (with size/downsample info)
+            tuple(base_sample, final_fasta, transgene_name_2, transgene_file)
+        }
+    
+    BLAST_TRANSGENE_TO_ASSEMBLY(
+        final_with_transgene
+    )
+    
+    // STEP 8: Convert BLAST results to BED format
+    CONVERT_BLAST_TO_BED(
+        BLAST_TRANSGENE_TO_ASSEMBLY.out.blast_results
+            .map { sample_name, blast_file, transgene_name, transgene_fasta ->
+                tuple(sample_name, blast_file, transgene_name)
+            }
+    )
+    
+    // STEP 9: Map transcripts to final assembly (if provided)
     if (params.transcripts_fasta) {
-        ALIGN_TRANSCRIPTS_TO_ASSEMBLY(
-            FLYE.out.assembly_fasta,
+        MAP_TRANSCRIPTS_TO_ASSEMBLY(
+            FINALIZE_ASSEMBLY.out.final_assembly,
             transcripts_fasta
         )
     }
-    
-    // STEP 6: Generate combined evaluation report
-    // Collect all evaluation metrics
-    // Extract only the files from the tuples (discard sample names)
-    alignment_stats = CALCULATE_ALIGNMENT_STATS.out.stats_json
-        .map { sample_name, file -> file }
-        .collect()
-    contiguity_stats = CALCULATE_ASSEMBLY_CONTIGUITY.out.contiguity_json
-        .map { sample_name, file -> file }
-        .collect()
-    sv_vcf_files = IDENTIFY_STRUCTURAL_VARIANTS.out.sv_vcf
-        .map { sample_name, file -> file }
-        .collect()
-
-    transcript_alignment_stats = params.transcripts_fasta ? 
-        ALIGN_TRANSCRIPTS_TO_ASSEMBLY.out.transcript_stats
-            .map { sample_name, file -> file }
-            .collect() :
-        channel.value(file('NO_FILE'))
-    
-    GENERATE_EVALUATION_REPORT(
-        alignment_stats,
-        contiguity_stats,
-        sv_vcf_files,
-        transcript_alignment_stats
-    )
 }
 
 emit:
@@ -897,12 +504,21 @@ emit:
     assembly_summary = GATHER_ASSEMBLY_STATS.out.assembly_stats
     
     // Assembly evaluation outputs (only if enabled)
-    assembly_alignments = params.run_assembly_evaluation && params.reference_genome ? 
-        ALIGN_ASSEMBLY_TO_GENOME.out.alignment_bam : channel.empty()
-    alignment_stats = params.run_assembly_evaluation && params.reference_genome ? 
-        CALCULATE_ALIGNMENT_STATS.out.stats_json : channel.empty()
-    structural_variants = params.run_assembly_evaluation && params.reference_genome ? 
-        IDENTIFY_STRUCTURAL_VARIANTS.out.sv_vcf : channel.empty()
-    evaluation_report = params.run_assembly_evaluation && params.reference_genome ? 
-        GENERATE_EVALUATION_REPORT.out.report_html : channel.empty()
+    // Complete refinement pipeline outputs
+    initial_alignments = params.run_assembly_evaluation && params.reference_genome ? 
+        ALIGN_ASSEMBLY_TO_GENOME.out.alignment : channel.empty()
+    annotated_assemblies = params.run_assembly_evaluation && params.reference_genome ? 
+        REPAIR_ASSEMBLY.out.annotated_assembly : channel.empty()
+    annotated_alignments = params.run_assembly_evaluation && params.reference_genome ? 
+        ALIGN_ANNOTATED_ASSEMBLY.out.alignment : channel.empty()
+    final_assemblies = params.run_assembly_evaluation && params.reference_genome ? 
+        FINALIZE_ASSEMBLY.out.final_assembly : channel.empty()
+    final_alignments = params.run_assembly_evaluation && params.reference_genome ? 
+        ALIGN_FINAL_ASSEMBLY.out.alignment : channel.empty()
+    read_mappings = params.run_assembly_evaluation && params.reference_genome ? 
+        MAP_READS_TO_ASSEMBLY.out.mapped_reads : channel.empty()
+    transgene_blast_beds = params.run_assembly_evaluation && params.reference_genome ? 
+        CONVERT_BLAST_TO_BED.out.bed_file : channel.empty()
+    transcript_alignments = params.run_assembly_evaluation && params.reference_genome && params.transcripts_fasta ? 
+        MAP_TRANSCRIPTS_TO_ASSEMBLY.out.transcript_bed : channel.empty()
 }

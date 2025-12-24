@@ -196,34 +196,40 @@ process MAP_READS_TO_ASSEMBLY {
 }
 
 // Process 7: BLAST transgene against final assembly
-process BLAST_TRANSGENE_TO_ASSEMBLY {
-    tag "${sample_name}_${transgene_name}"
-    publishDir "${params.outdir}/assembly_evaluation/${sample_name}/transgene_blast", mode: 'copy'
+    // STEP 7: BLAST transgene against final assembly
+    // Extract base sample name and look up transgene from params or CSV
     
-    input:
-    tuple val(sample_name), path(final_assembly), val(transgene_name), path(transgene_fasta)
+    // Read sample info from CSV if available
+    if (params.samples) {
+        sample_info = channel
+            .fromPath(params.samples)
+            .splitCsv(header: true)
+            .map { row ->
+                tuple(row.sample, row.transgene ?: params.default_transgene)
+            }
+    } else {
+        // Use default for all
+        sample_info = channel.value([null, params.default_transgene])
+    }
     
-    output:
-    tuple val(sample_name), path("${sample_name}_${transgene_name}_transgene_blast.txt"), emit: blast_results
-    path "versions.yml", emit: versions
+    final_with_transgene = FINALIZE_ASSEMBLY.out.final_assembly
+        .map { sample_name, final_fasta ->
+            // Extract base sample (e.g., S-1077-1 from S-1077-1_70k_Plus_ds0.5_rep1)
+            def base_sample = sample_name.replaceAll(/_\d+k_Plus.*/, '')
+            tuple(base_sample, sample_name, final_fasta)
+        }
+        .combine(sample_info)
+        .filter { base_sample, sample_name, final_fasta, csv_sample, transgene ->
+            csv_sample == null || csv_sample == base_sample
+        }
+        .map { base_sample, sample_name, final_fasta, csv_sample, transgene ->
+            def transgene_file = file("${params.transgene_dir}/${transgene}.fa", checkIfExists: true)
+            tuple(sample_name, final_fasta, transgene, transgene_file)
+        }
     
-    script:
-    """
-    # Create BLAST database from final assembly
-    makeblastdb -in ${final_assembly} -dbtype nucl -out final_assembly_db
-    
-    # Run BLAST search
-    blastn -query ${transgene_fasta} \\
-        -db final_assembly_db \\
-        -outfmt 6 \\
-        > ${sample_name}_${transgene_name}_transgene_blast.txt
-    
-    # Create versions file
-    cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
-        blast: \$(blastn -version 2>&1 | head -n1 | sed 's/blastn: //')
-    END_VERSIONS
-    """
+    BLAST_TRANSGENE_TO_ASSEMBLY(
+        final_with_transgene
+    )
 }
 
 // Process 8: Convert BLAST results to BED format
@@ -251,13 +257,14 @@ process CONVERT_BLAST_TO_BED {
     """
 }
 
-// Process 9: Map transcripts to final assembly (optional)
+// Process 9: Map transcripts to final assembly
 process MAP_TRANSCRIPTS_TO_ASSEMBLY {
     tag "${sample_name}"
     publishDir "${params.outdir}/assembly_evaluation/${sample_name}/transcript_mapping", mode: 'copy'
     
     input:
-    tuple val(sample_name), path(final_assembly), path(transcripts_fasta)
+    tuple val(sample_name), path(final_assembly)
+    path transcripts_fasta
     
     output:
     tuple val(sample_name), path("${sample_name}_transcripts_to_assembly.bed"), emit: transcript_bed
@@ -269,14 +276,54 @@ process MAP_TRANSCRIPTS_TO_ASSEMBLY {
     # Map transcripts to assembly
     minimap2 -a ${final_assembly} ${transcripts_fasta} > ${sample_name}_transcripts_to_assembly.sam
     
-    # Convert SAM to BED
-    sam2bed < ${sample_name}_transcripts_to_assembly.sam > ${sample_name}_transcripts_to_assembly.bed
+    # Convert SAM to BED using Python (avoiding sam2bed dependency)
+    cat > sam_to_bed.py <<'PYSCRIPT'
+#!/usr/bin/env python3
+import sys
+
+with open('${sample_name}_transcripts_to_assembly.sam', 'r') as sam_in:
+    with open('${sample_name}_transcripts_to_assembly.bed', 'w') as bed_out:
+        for line in sam_in:
+            if line.startswith('@'):
+                continue
+            
+            fields = line.strip().split('\\t')
+            if len(fields) < 11:
+                continue
+            
+            qname = fields[0]   # Query name
+            flag = int(fields[1])
+            rname = fields[2]   # Reference name
+            pos = int(fields[3]) - 1  # Convert to 0-based
+            mapq = fields[4]
+            cigar = fields[5]
+            seq = fields[9]
+            
+            # Skip unmapped
+            if flag & 4:
+                continue
+            
+            # Calculate end position from CIGAR
+            import re
+            cigar_ops = re.findall(r'(\d+)([MIDNSHP=X])', cigar)
+            length = sum(int(n) for n, op in cigar_ops if op in 'MDN=X')
+            end = pos + length
+            
+            # Determine strand
+            strand = '-' if flag & 16 else '+'
+            
+            # Write BED format (chrom, start, end, name, score, strand)
+            bed_out.write(f"{rname}\\t{pos}\\t{end}\\t{qname}\\t{mapq}\\t{strand}\\n")
+PYSCRIPT
+
+    python3 sam_to_bed.py
     
     # Create versions file
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
         minimap2: \$(minimap2 --version 2>&1)
-        bedops: \$(sam2bed --version 2>&1 || echo "2.4.41")
+        python: \$(python3 --version 2>&1 | sed 's/Python //')
     END_VERSIONS
     """
+}
 }
