@@ -110,6 +110,9 @@ process FINALIZE_ASSEMBLY {
     path "versions.yml", emit: versions
     
     script:
+    // Extract base strain name (e.g., S-1077-1 from S-1077-1_70k_Plus_ds0.5_rep1)
+    def base_strain = sample_name.replaceAll(/_\d+k_Plus.*/, '')
+    
     """
     # Create working copies with standard names for the Python script
     cp input_annotated_assembly.fasta annotated_assembly.fasta
@@ -163,7 +166,6 @@ process ALIGN_FINAL_ASSEMBLY {
 // Process 6: Map ONT reads to final assembly
 process MAP_READS_TO_ASSEMBLY {
     tag "${sample_name}"
-    publishDir "${params.outdir}/assembly_evaluation/${sample_name}/read_mapping", mode: 'copy'
     
     input:
     tuple val(sample_name), path(final_assembly), path(query_fastq)
@@ -174,6 +176,9 @@ process MAP_READS_TO_ASSEMBLY {
     path "versions.yml", emit: versions
     
     script:
+    // Extract base strain name (e.g., S-1077-1 from S-1077-1_70k_Plus_ds0.5_rep1)
+    def base_strain = sample_name.replaceAll(/_\d+k_Plus.*/, '')
+    
     """
     # Map ONT reads to final assembly
     minimap2 -ax map-ont ${final_assembly} ${query_fastq} > ont_to_assembled.sam
@@ -198,7 +203,6 @@ process MAP_READS_TO_ASSEMBLY {
 // Process 7: BLAST transgene against final assembly
 process BLAST_TRANSGENE_TO_ASSEMBLY {
     tag "${sample_name}_${transgene_name}"
-    publishDir "${params.outdir}/assembly_evaluation/${sample_name}/transgene_blast", mode: 'copy'
     
     input:
     tuple val(sample_name), path(final_assembly), val(transgene_name), path(transgene_file)
@@ -208,6 +212,9 @@ process BLAST_TRANSGENE_TO_ASSEMBLY {
     path "versions.yml", emit: versions
     
     script:
+    // Extract base strain name (e.g., S-1077-1 from S-1077-1_70k_Plus_ds0.5_rep1)
+    def base_strain = sample_name.replaceAll(/_\d+k_Plus.*/, '')
+    
     """
     # Create BLAST database from final assembly
     makeblastdb -in ${final_assembly} -dbtype nucl -out assembly_db
@@ -267,7 +274,6 @@ workflow ASSEMBLY_EVALUATION_WORKFLOW {
 // Process 8: Convert BLAST results to BED format
 process CONVERT_BLAST_TO_BED {
     tag "${sample_name}_${transgene_name}"
-    publishDir "${params.outdir}/assembly_evaluation/${sample_name}/transgene_blast", mode: 'copy'
     
     input:
     tuple val(sample_name), path(blast_txt), val(transgene_name)
@@ -277,6 +283,9 @@ process CONVERT_BLAST_TO_BED {
     path "versions.yml", emit: versions
     
     script:
+    // Extract base strain name (e.g., S-1077-1 from S-1077-1_70k_Plus_ds0.5_rep1)
+    def base_strain = sample_name.replaceAll(/_\d+k_Plus.*/, '')
+    
     """
     # Convert BLAST output to BED format
     blast_to_bed.py ${blast_txt} > ${sample_name}_${transgene_name}_transgene_blast.bed
@@ -292,7 +301,6 @@ process CONVERT_BLAST_TO_BED {
 // Process 9: Map transcripts to final assembly
 process MAP_TRANSCRIPTS_TO_ASSEMBLY {
     tag "${sample_name}"
-    publishDir "${params.outdir}/assembly_evaluation/${sample_name}/transcript_mapping", mode: 'copy'
     
     input:
     tuple val(sample_name), path(final_assembly)
@@ -303,6 +311,9 @@ process MAP_TRANSCRIPTS_TO_ASSEMBLY {
     path "versions.yml", emit: versions
     
     script:
+    // Extract base strain name (e.g., S-1077-1 from S-1077-1_70k_Plus_ds0.5_rep1)
+    def base_strain = sample_name.replaceAll(/_\d+k_Plus.*/, '')
+    
     """
     # Map transcripts to assembly
     minimap2 -a ${final_assembly} ${transcripts_fasta} > transcripts_to_assembly.sam
@@ -320,5 +331,45 @@ process MAP_TRANSCRIPTS_TO_ASSEMBLY {
         minimap2: \$(minimap2 --version 2>&1)
         bedops: \$(sam2bed --version 2>&1 || echo "2.4.35")
     END_VERSIONS
+    """
+}
+
+// Process 10: Consolidate IGV data into strain-specific directories
+process CONSOLIDATE_IGV_DATA {
+    tag "${sample_name}"
+    publishDir "${params.outdir}/igv_data/${base_strain}", mode: 'copy', saveAs: { filename -> filename }
+    
+    input:
+    tuple val(sample_name), 
+          path(final_assembly), 
+          path(bam_file), 
+          path(bam_index),
+          path(transgene_bed),
+          path(transcript_bed, stageAs: 'transcript.bed')
+    
+    output:
+    tuple val(base_strain), path("*"), emit: igv_files
+    
+    script:
+    // Extract base strain name (e.g., S-1077-1 from S-1077-1_70k_Plus_ds0.5_rep1)
+    base_strain = sample_name.replaceAll(/_\d+k_Plus.*/, '')
+    
+    """
+    # Copy all files - they will be published to igv_data/${base_strain}/
+    # Files retain their original names
+    
+    # Verify all expected files are present
+    echo "Consolidating IGV data for ${sample_name} (strain: ${base_strain})"
+    echo "Final assembly: ${final_assembly}"
+    echo "BAM file: ${bam_file}"
+    echo "BAM index: ${bam_index}"
+    echo "Transgene BED: ${transgene_bed}"
+    
+    # Check if transcript file exists (optional)
+    if [ -f "${transcript_bed}" ] && [ "${transcript_bed}" != "transcript.bed" ]; then
+        echo "Transcript BED: ${transcript_bed}"
+    else
+        echo "No transcript BED file provided"
+    fi
     """
 }

@@ -20,6 +20,7 @@ include { MAP_READS_TO_ASSEMBLY } from '../modules/local/assembly_evaluation'
 include { BLAST_TRANSGENE_TO_ASSEMBLY } from '../modules/local/assembly_evaluation'
 include { CONVERT_BLAST_TO_BED } from '../modules/local/assembly_evaluation'
 include { MAP_TRANSCRIPTS_TO_ASSEMBLY } from '../modules/local/assembly_evaluation'
+include { CONSOLIDATE_IGV_DATA } from '../modules/local/assembly_evaluation'
 
 
 // ========================================
@@ -464,6 +465,35 @@ if (params.run_assembly_evaluation && params.reference_genome) {
             transcripts_fasta
         )
     }
+    
+    // STEP 10: Consolidate all IGV data into strain-specific directories
+    // Combine all the data needed for IGV visualization
+    
+    // Start with final assembly and BAM files
+    igv_data_base = FINALIZE_ASSEMBLY.out.final_assembly
+        .join(MAP_READS_TO_ASSEMBLY.out.mapped_reads, by: 0)
+        .map { sample_name, final_asm, _assembly_copy, bam_file ->
+            tuple(sample_name, final_asm, bam_file)
+        }
+        .join(MAP_READS_TO_ASSEMBLY.out.bam_index, by: 0)
+    
+    // Add transgene BED files
+    igv_with_transgene = igv_data_base
+        .join(CONVERT_BLAST_TO_BED.out.bed_file, by: 0)
+    
+    // Add transcript BED files (if available)
+    if (params.transcripts_fasta) {
+        igv_complete = igv_with_transgene
+            .join(MAP_TRANSCRIPTS_TO_ASSEMBLY.out.transcript_bed, by: 0)
+    } else {
+        // Create a dummy transcript channel if no transcripts
+        igv_complete = igv_with_transgene
+            .map { sample_name, final_asm, bam, bam_idx, trans_bed ->
+                tuple(sample_name, final_asm, bam, bam_idx, trans_bed, file('NO_FILE'))
+            }
+    }
+    
+    CONSOLIDATE_IGV_DATA(igv_complete)
 }
 
 emit:
