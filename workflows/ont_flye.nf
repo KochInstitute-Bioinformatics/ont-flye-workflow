@@ -855,12 +855,21 @@ if (params.run_assembly_evaluation && params.reference_genome) {
     
     // STEP 6: Generate combined evaluation report
     // Collect all evaluation metrics
-    alignment_stats = CALCULATE_ALIGNMENT_STATS.out.stats_json.collect()
-    contiguity_stats = CALCULATE_ASSEMBLY_CONTIGUITY.out.contiguity_json.collect()
-    sv_vcf_files = IDENTIFY_STRUCTURAL_VARIANTS.out.sv_vcf.collect()
-    
+    // Extract only the files from the tuples (discard sample names)
+    alignment_stats = CALCULATE_ALIGNMENT_STATS.out.stats_json
+        .map { sample_name, file -> file }
+        .collect()
+    contiguity_stats = CALCULATE_ASSEMBLY_CONTIGUITY.out.contiguity_json
+        .map { sample_name, file -> file }
+        .collect()
+    sv_vcf_files = IDENTIFY_STRUCTURAL_VARIANTS.out.sv_vcf
+        .map { sample_name, file -> file }
+        .collect()
+
     transcript_alignment_stats = params.transcripts_fasta ? 
-        ALIGN_TRANSCRIPTS_TO_ASSEMBLY.out.transcript_stats.collect() :
+        ALIGN_TRANSCRIPTS_TO_ASSEMBLY.out.transcript_stats
+            .map { sample_name, file -> file }
+            .collect() :
         channel.value(file('NO_FILE'))
     
     GENERATE_EVALUATION_REPORT(
