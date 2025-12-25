@@ -325,7 +325,8 @@ process CONSOLIDATE_IGV_DATA {
     publishDir "${params.outdir}/igv_data/${base_strain}", mode: 'copy', pattern: "${sample_name}*"
     
     input:
-    tuple val(sample_name), 
+    tuple val(base_strain),
+          val(sample_name), 
           path(final_assembly), 
           path(bam_file), 
           path(bam_index),
@@ -337,13 +338,13 @@ process CONSOLIDATE_IGV_DATA {
           path("${sample_name}_final_assembly.fasta"),
           path("${sample_name}_ont_to_assembled.sorted.bam"),
           path("${sample_name}_ont_to_assembled.sorted.bam.bai"),
-          path("${sample_name}_*_transgene_blast.bed"),
+          path("output_transgene_blast.bed"),
           path("${sample_name}_transcripts_to_assembly.bed", optional: true),
           emit: igv_files
     
     script:
-    // Extract base strain name (e.g., S-1077-1 from S-1077-1_70k_Plus_ds0.5_rep1)
-    base_strain = sample_name.replaceAll(/_\d+k_Plus.*/, '')
+    // Get the transgene name from the input file for the output filename
+    def transgene_basename = transgene_bed.name
     
     """
     # Nextflow stages files as symlinks, but we need actual files for outputs
@@ -367,12 +368,14 @@ process CONSOLIDATE_IGV_DATA {
     cp -L ${bam_index} \${TEMP}
     mv \${TEMP} \${TARGET}
     
-    # Handle transgene BED - must create a new file for Nextflow output matching
-    # Input files are excluded from wildcard matching, so we force a copy
-    TRANSGENE_BASENAME="\$(basename ${transgene_bed})"
+    # Handle transgene BED - create output with fixed name for Nextflow matching
+    # We use a simple name since wildcard matching doesn't work with input files
     TEMP=\$(mktemp)
     cp -L ${transgene_bed} \${TEMP}
-    mv \${TEMP} \${TRANSGENE_BASENAME}
+    mv \${TEMP} output_transgene_blast.bed
+    
+    # Also keep a copy with the original name for the publishDir
+    cp output_transgene_blast.bed ${transgene_basename}
     
     # Handle optional transcript file - always create new file for output matching
     if [ -f "${transcript_bed}" ] && [ -s "${transcript_bed}" ]; then

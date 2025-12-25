@@ -485,12 +485,17 @@ if (params.run_assembly_evaluation && params.reference_genome) {
     if (params.transcripts_fasta) {
         igv_complete = igv_with_transgene
             .join(MAP_TRANSCRIPTS_TO_ASSEMBLY.out.transcript_bed, by: 0)
+            .map { sample_name, final_asm, bam, bam_idx, trans_bed, transcript_bed ->
+                def base_strain = sample_name.replaceAll(/_\d+k_Plus.*/, '')
+                tuple(base_strain, sample_name, final_asm, bam, bam_idx, trans_bed, transcript_bed)
+            }
     } else {
         // Create a dummy transcript file for optional input
         def dummy_transcript = file('transcript_optional.bed')
         igv_complete = igv_with_transgene
             .map { sample_name, final_asm, bam, bam_idx, trans_bed ->
-                tuple(sample_name, final_asm, bam, bam_idx, trans_bed, dummy_transcript)
+                def base_strain = sample_name.replaceAll(/_\d+k_Plus.*/, '')
+                tuple(base_strain, sample_name, final_asm, bam, bam_idx, trans_bed, dummy_transcript)
             }
     }
     
