@@ -338,7 +338,7 @@ process CONSOLIDATE_IGV_DATA {
           path("${sample_name}_final_assembly.fasta"),
           path("${sample_name}_ont_to_assembled.sorted.bam"),
           path("${sample_name}_ont_to_assembled.sorted.bam.bai"),
-          path("${sample_name}_*_transgene_blast.bed"),
+          path("transgene_blast_output.bed"),
           path("${sample_name}_transcripts_to_assembly.bed", optional: true),
           emit: igv_files
     
@@ -368,11 +368,14 @@ process CONSOLIDATE_IGV_DATA {
     cp -L ${bam_index} \${TEMP}
     mv \${TEMP} \${TARGET}
     
-    # Handle transgene BED - rename to include sample name for unique identification
-    # Extract transgene name from the original filename
+    # Handle transgene BED - create with fixed output name for Nextflow matching
+    # Then copy to the proper name for publishDir
     TEMP=\$(mktemp)
     cp -L ${transgene_bed} \${TEMP}
-    mv \${TEMP} ${transgene_basename}
+    mv \${TEMP} transgene_blast_output.bed
+    
+    # Also create a copy with the original filename for publishDir
+    cp transgene_blast_output.bed ${transgene_basename}
     
     # Handle optional transcript file - always create new file for output matching
     if [ -f "${transcript_bed}" ] && [ -s "${transcript_bed}" ]; then
@@ -389,6 +392,7 @@ process CONSOLIDATE_IGV_DATA {
     chmod 664 ${sample_name}_final_assembly.fasta || true
     chmod 664 ${sample_name}_ont_to_assembled.sorted.bam || true
     chmod 664 ${sample_name}_ont_to_assembled.sorted.bam.bai || true
+    chmod 664 transgene_blast_output.bed || true
     chmod 664 ${transgene_basename} || true
     if [ -f "${sample_name}_transcripts_to_assembly.bed" ]; then
         chmod 664 ${sample_name}_transcripts_to_assembly.bed || true
