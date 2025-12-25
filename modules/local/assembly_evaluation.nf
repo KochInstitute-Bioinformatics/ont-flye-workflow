@@ -322,7 +322,7 @@ process MAP_TRANSCRIPTS_TO_ASSEMBLY {
 // Process 10: Consolidate IGV data into strain-specific directories
 process CONSOLIDATE_IGV_DATA {
     tag "${sample_name}"
-    publishDir "${params.outdir}/igv_data/${base_strain}", mode: 'copy', pattern: "${sample_name}*"
+    publishDir "${params.outdir}/igv_data/${base_strain}", mode: 'copy'
     
     input:
     tuple val(base_strain),
@@ -388,6 +388,16 @@ process CONSOLIDATE_IGV_DATA {
         echo "○ No transcript BED file provided (optional)"
     fi
     
+    # Set proper permissions: rw-rw-r-- (664) for owner+group write, world read
+    chmod 664 ${sample_name}_final_assembly.fasta || true
+    chmod 664 ${sample_name}_ont_to_assembled.sorted.bam || true
+    chmod 664 ${sample_name}_ont_to_assembled.sorted.bam.bai || true
+    chmod 664 output_transgene_blast.bed || true
+    chmod 664 ${transgene_basename} || true
+    if [ -f "${sample_name}_transcripts_to_assembly.bed" ]; then
+        chmod 664 ${sample_name}_transcripts_to_assembly.bed || true
+    fi
+    
     # Log what we're consolidating
     echo ""
     echo "═══════════════════════════════════════"
@@ -397,7 +407,7 @@ process CONSOLIDATE_IGV_DATA {
     echo "═══════════════════════════════════════"
     echo ""
     echo "Files prepared:"
-    ls -lh ${sample_name}* 2>/dev/null || echo "  (listing files...)"
+    ls -lh ${sample_name}* output_transgene_blast.bed ${transgene_basename} 2>/dev/null || echo "  (listing files...)"
     echo ""
     """
 }
