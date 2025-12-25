@@ -349,29 +349,56 @@ process CONSOLIDATE_IGV_DATA {
     # Nextflow stages files as symlinks, but we need actual files for outputs
     # Copy files to ensure they exist as real files in the work directory
     
-    # Handle final assembly - check if it's a symlink or needs copying
-    if [ -L "${final_assembly}" ] || [ "${final_assembly}" != "${sample_name}_final_assembly.fasta" ]; then
-        cp -L ${final_assembly} ${sample_name}_final_assembly.fasta
+    # Handle final assembly
+    TARGET="${sample_name}_final_assembly.fasta"
+    if [ "${final_assembly}" != "\${TARGET}" ]; then
+        cp -L ${final_assembly} \${TARGET}
+    elif [ -L "${final_assembly}" ]; then
+        # It's a symlink with the right name - dereference it
+        TEMP=\$(mktemp)
+        cp -L ${final_assembly} \${TEMP}
+        mv \${TEMP} \${TARGET}
     fi
     
     # Handle BAM file
-    if [ -L "${bam_file}" ] || [ "${bam_file}" != "${sample_name}_ont_to_assembled.sorted.bam" ]; then
-        cp -L ${bam_file} ${sample_name}_ont_to_assembled.sorted.bam
+    TARGET="${sample_name}_ont_to_assembled.sorted.bam"
+    if [ "${bam_file}" != "\${TARGET}" ]; then
+        cp -L ${bam_file} \${TARGET}
+    elif [ -L "${bam_file}" ]; then
+        TEMP=\$(mktemp)
+        cp -L ${bam_file} \${TEMP}
+        mv \${TEMP} \${TARGET}
     fi
     
     # Handle BAM index
-    if [ -L "${bam_index}" ] || [ "${bam_index}" != "${sample_name}_ont_to_assembled.sorted.bam.bai" ]; then
-        cp -L ${bam_index} ${sample_name}_ont_to_assembled.sorted.bam.bai
+    TARGET="${sample_name}_ont_to_assembled.sorted.bam.bai"
+    if [ "${bam_index}" != "\${TARGET}" ]; then
+        cp -L ${bam_index} \${TARGET}
+    elif [ -L "${bam_index}" ]; then
+        TEMP=\$(mktemp)
+        cp -L ${bam_index} \${TEMP}
+        mv \${TEMP} \${TARGET}
     fi
     
-    # Handle transgene BED - always copy to ensure it's a real file
-    cp -L ${transgene_bed} .
+    # Handle transgene BED - copy to current directory with original name
+    if [ ! -f "\$(basename ${transgene_bed})" ]; then
+        cp -L ${transgene_bed} .
+    elif [ -L "${transgene_bed}" ]; then
+        TEMP=\$(mktemp)
+        cp -L ${transgene_bed} \${TEMP}
+        mv \${TEMP} \$(basename ${transgene_bed})
+    fi
     
     # Handle optional transcript file
-    # Check if the transcript_bed is a real file with content
     if [ -f "${transcript_bed}" ] && [ -s "${transcript_bed}" ]; then
-        # File exists and has content - copy with proper name
-        cp -L ${transcript_bed} ${sample_name}_transcripts_to_assembly.bed
+        TARGET="${sample_name}_transcripts_to_assembly.bed"
+        if [ "${transcript_bed}" != "\${TARGET}" ]; then
+            cp -L ${transcript_bed} \${TARGET}
+        elif [ -L "${transcript_bed}" ]; then
+            TEMP=\$(mktemp)
+            cp -L ${transcript_bed} \${TEMP}
+            mv \${TEMP} \${TARGET}
+        fi
         echo "✓ Transcript BED included: ${transcript_bed}"
     else
         echo "○ No transcript BED file provided (optional)"
