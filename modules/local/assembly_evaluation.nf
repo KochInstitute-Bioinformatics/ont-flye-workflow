@@ -110,9 +110,6 @@ process FINALIZE_ASSEMBLY {
     path "versions.yml", emit: versions
     
     script:
-    // Extract base strain name (e.g., S-1077-1 from S-1077-1_70k_Plus_ds0.5_rep1)
-    def base_strain = sample_name.replaceAll(/_\d+k_Plus.*/, '')
-    
     """
     # Create working copies with standard names for the Python script
     cp input_annotated_assembly.fasta annotated_assembly.fasta
@@ -172,13 +169,10 @@ process MAP_READS_TO_ASSEMBLY {
     
     output:
     tuple val(sample_name), path(final_assembly), path("${sample_name}_ont_to_assembled.sorted.bam"), emit: mapped_reads
-    path "${sample_name}_ont_to_assembled.sorted.bam.bai", emit: bam_index
+    tuple val(sample_name), path("${sample_name}_ont_to_assembled.sorted.bam.bai"), emit: bam_index
     path "versions.yml", emit: versions
     
     script:
-    // Extract base strain name (e.g., S-1077-1 from S-1077-1_70k_Plus_ds0.5_rep1)
-    def base_strain = sample_name.replaceAll(/_\d+k_Plus.*/, '')
-    
     """
     # Map ONT reads to final assembly
     minimap2 -ax map-ont ${final_assembly} ${query_fastq} > ont_to_assembled.sam
@@ -212,9 +206,6 @@ process BLAST_TRANSGENE_TO_ASSEMBLY {
     path "versions.yml", emit: versions
     
     script:
-    // Extract base strain name (e.g., S-1077-1 from S-1077-1_70k_Plus_ds0.5_rep1)
-    def base_strain = sample_name.replaceAll(/_\d+k_Plus.*/, '')
-    
     """
     # Create BLAST database from final assembly
     makeblastdb -in ${final_assembly} -dbtype nucl -out assembly_db
@@ -283,9 +274,6 @@ process CONVERT_BLAST_TO_BED {
     path "versions.yml", emit: versions
     
     script:
-    // Extract base strain name (e.g., S-1077-1 from S-1077-1_70k_Plus_ds0.5_rep1)
-    def base_strain = sample_name.replaceAll(/_\d+k_Plus.*/, '')
-    
     """
     # Convert BLAST output to BED format
     blast_to_bed.py ${blast_txt} > ${sample_name}_${transgene_name}_transgene_blast.bed
@@ -311,9 +299,6 @@ process MAP_TRANSCRIPTS_TO_ASSEMBLY {
     path "versions.yml", emit: versions
     
     script:
-    // Extract base strain name (e.g., S-1077-1 from S-1077-1_70k_Plus_ds0.5_rep1)
-    def base_strain = sample_name.replaceAll(/_\d+k_Plus.*/, '')
-    
     """
     # Map transcripts to assembly
     minimap2 -a ${final_assembly} ${transcripts_fasta} > transcripts_to_assembly.sam

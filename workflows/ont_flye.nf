@@ -475,7 +475,7 @@ if (params.run_assembly_evaluation && params.reference_genome) {
         .map { sample_name, final_asm, _assembly_copy, bam_file ->
             tuple(sample_name, final_asm, bam_file)
         }
-        .join(MAP_READS_TO_ASSEMBLY.out.bam_index, by: 0)
+        .join(MAP_READS_TO_ASSEMBLY.out.bam_index.map { sample_name, bai -> tuple(sample_name, bai) }, by: 0)
     
     // Add transgene BED files
     igv_with_transgene = igv_data_base
