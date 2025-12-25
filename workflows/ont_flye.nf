@@ -486,10 +486,11 @@ if (params.run_assembly_evaluation && params.reference_genome) {
         igv_complete = igv_with_transgene
             .join(MAP_TRANSCRIPTS_TO_ASSEMBLY.out.transcript_bed, by: 0)
     } else {
-        // Create a dummy transcript channel if no transcripts
+        // Create a dummy transcript file for optional input
+        def dummy_transcript = file('transcript_optional.bed')
         igv_complete = igv_with_transgene
             .map { sample_name, final_asm, bam, bam_idx, trans_bed ->
-                tuple(sample_name, final_asm, bam, bam_idx, trans_bed, file('NO_FILE'))
+                tuple(sample_name, final_asm, bam, bam_idx, trans_bed, dummy_transcript)
             }
     }
     

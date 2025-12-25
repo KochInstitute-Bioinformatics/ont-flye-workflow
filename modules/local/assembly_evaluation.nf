@@ -369,17 +369,25 @@ process CONSOLIDATE_IGV_DATA {
     ln -s ${transgene_bed} .
     
     # Handle optional transcript file
-    if [ -f "${transcript_bed}" ] && [ "${transcript_bed}" != "transcript_optional.bed" ]; then
+    # Check if the transcript_bed is a real file with content
+    if [ -f "${transcript_bed}" ] && [ -s "${transcript_bed}" ]; then
+        # File exists and has content - create symlink
         ln -s ${transcript_bed} ${sample_name}_transcripts_to_assembly.bed
-        echo "✓ Transcript BED included"
+        echo "✓ Transcript BED included: ${transcript_bed}"
     else
-        echo "○ No transcript BED file"
+        echo "○ No transcript BED file provided (optional)"
     fi
     
     # Log what we're consolidating
+    echo ""
+    echo "═══════════════════════════════════════"
     echo "Consolidating IGV data for ${sample_name}"
-    echo "  Strain: ${base_strain}"
-    echo "  Files prepared for igv_data/${base_strain}/"
-    ls -lh ${sample_name}* || true
+    echo "  Base strain: ${base_strain}"
+    echo "  Output directory: igv_data/${base_strain}/"
+    echo "═══════════════════════════════════════"
+    echo ""
+    echo "Files prepared:"
+    ls -lh ${sample_name}* 2>/dev/null || echo "  (listing files...)"
+    echo ""
     """
 }
