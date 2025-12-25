@@ -338,7 +338,7 @@ process CONSOLIDATE_IGV_DATA {
           path("${sample_name}_final_assembly.fasta"),
           path("${sample_name}_ont_to_assembled.sorted.bam"),
           path("${sample_name}_ont_to_assembled.sorted.bam.bai"),
-          path("output_transgene_blast.bed"),
+          path("${sample_name}_*_transgene_blast.bed"),
           path("${sample_name}_transcripts_to_assembly.bed", optional: true),
           emit: igv_files
     
@@ -368,14 +368,11 @@ process CONSOLIDATE_IGV_DATA {
     cp -L ${bam_index} \${TEMP}
     mv \${TEMP} \${TARGET}
     
-    # Handle transgene BED - create output with fixed name for Nextflow matching
-    # We use a simple name since wildcard matching doesn't work with input files
+    # Handle transgene BED - rename to include sample name for unique identification
+    # Extract transgene name from the original filename
     TEMP=\$(mktemp)
     cp -L ${transgene_bed} \${TEMP}
-    mv \${TEMP} output_transgene_blast.bed
-    
-    # Also keep a copy with the original name for the publishDir
-    cp output_transgene_blast.bed ${transgene_basename}
+    mv \${TEMP} ${transgene_basename}
     
     # Handle optional transcript file - always create new file for output matching
     if [ -f "${transcript_bed}" ] && [ -s "${transcript_bed}" ]; then
@@ -392,7 +389,6 @@ process CONSOLIDATE_IGV_DATA {
     chmod 664 ${sample_name}_final_assembly.fasta || true
     chmod 664 ${sample_name}_ont_to_assembled.sorted.bam || true
     chmod 664 ${sample_name}_ont_to_assembled.sorted.bam.bai || true
-    chmod 664 output_transgene_blast.bed || true
     chmod 664 ${transgene_basename} || true
     if [ -f "${sample_name}_transcripts_to_assembly.bed" ]; then
         chmod 664 ${sample_name}_transcripts_to_assembly.bed || true
@@ -407,7 +403,7 @@ process CONSOLIDATE_IGV_DATA {
     echo "═══════════════════════════════════════"
     echo ""
     echo "Files prepared:"
-    ls -lh ${sample_name}* output_transgene_blast.bed ${transgene_basename} 2>/dev/null || echo "  (listing files...)"
+    ls -lh ${sample_name}* 2>/dev/null || echo "  (listing files...)"
     echo ""
     """
 }
