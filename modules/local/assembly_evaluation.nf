@@ -337,7 +337,7 @@ process MAP_TRANSCRIPTS_TO_ASSEMBLY {
 // Process 10: Consolidate IGV data into strain-specific directories
 process CONSOLIDATE_IGV_DATA {
     tag "${sample_name}"
-    publishDir "${params.outdir}/igv_data/${base_strain}", mode: 'copy', saveAs: { filename -> filename }
+    publishDir "${params.outdir}/igv_data/${base_strain}", mode: 'copy', pattern: "${sample_name}*"
     
     input:
     tuple val(sample_name), 
@@ -345,31 +345,41 @@ process CONSOLIDATE_IGV_DATA {
           path(bam_file), 
           path(bam_index),
           path(transgene_bed),
-          path(transcript_bed, stageAs: 'transcript.bed')
+          path(transcript_bed, stageAs: 'transcript_optional.bed')
     
     output:
-    tuple val(base_strain), path("*"), emit: igv_files
+    tuple val(base_strain), 
+          path("${sample_name}_final_assembly.fasta"),
+          path("${sample_name}_ont_to_assembled.sorted.bam"),
+          path("${sample_name}_ont_to_assembled.sorted.bam.bai"),
+          path("${sample_name}_*_transgene_blast.bed"),
+          path("${sample_name}_transcripts_to_assembly.bed", optional: true),
+          emit: igv_files
     
     script:
     // Extract base strain name (e.g., S-1077-1 from S-1077-1_70k_Plus_ds0.5_rep1)
     base_strain = sample_name.replaceAll(/_\d+k_Plus.*/, '')
     
     """
-    # Copy all files - they will be published to igv_data/${base_strain}/
-    # Files retain their original names
+    # Create symbolic links to retain original filenames
+    # This makes files available for publishing
+    ln -s ${final_assembly} ${sample_name}_final_assembly.fasta
+    ln -s ${bam_file} ${sample_name}_ont_to_assembled.sorted.bam
+    ln -s ${bam_index} ${sample_name}_ont_to_assembled.sorted.bam.bai
+    ln -s ${transgene_bed} .
     
-    # Verify all expected files are present
-    echo "Consolidating IGV data for ${sample_name} (strain: ${base_strain})"
-    echo "Final assembly: ${final_assembly}"
-    echo "BAM file: ${bam_file}"
-    echo "BAM index: ${bam_index}"
-    echo "Transgene BED: ${transgene_bed}"
-    
-    # Check if transcript file exists (optional)
-    if [ -f "${transcript_bed}" ] && [ "${transcript_bed}" != "transcript.bed" ]; then
-        echo "Transcript BED: ${transcript_bed}"
+    # Handle optional transcript file
+    if [ -f "${transcript_bed}" ] && [ "${transcript_bed}" != "transcript_optional.bed" ]; then
+        ln -s ${transcript_bed} ${sample_name}_transcripts_to_assembly.bed
+        echo "✓ Transcript BED included"
     else
-        echo "No transcript BED file provided"
+        echo "○ No transcript BED file"
     fi
+    
+    # Log what we're consolidating
+    echo "Consolidating IGV data for ${sample_name}"
+    echo "  Strain: ${base_strain}"
+    echo "  Files prepared for igv_data/${base_strain}/"
+    ls -lh ${sample_name}* || true
     """
 }
