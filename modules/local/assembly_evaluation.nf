@@ -349,56 +349,37 @@ process CONSOLIDATE_IGV_DATA {
     # Nextflow stages files as symlinks, but we need actual files for outputs
     # Copy files to ensure they exist as real files in the work directory
     
-    # Handle final assembly
+    # Handle final assembly - always create new file for output matching
     TARGET="${sample_name}_final_assembly.fasta"
-    if [ "${final_assembly}" != "\${TARGET}" ]; then
-        cp -L ${final_assembly} \${TARGET}
-    elif [ -L "${final_assembly}" ]; then
-        # It's a symlink with the right name - dereference it
-        TEMP=\$(mktemp)
-        cp -L ${final_assembly} \${TEMP}
-        mv \${TEMP} \${TARGET}
-    fi
+    TEMP=\$(mktemp)
+    cp -L ${final_assembly} \${TEMP}
+    mv \${TEMP} \${TARGET}
     
-    # Handle BAM file
+    # Handle BAM file - always create new file for output matching
     TARGET="${sample_name}_ont_to_assembled.sorted.bam"
-    if [ "${bam_file}" != "\${TARGET}" ]; then
-        cp -L ${bam_file} \${TARGET}
-    elif [ -L "${bam_file}" ]; then
-        TEMP=\$(mktemp)
-        cp -L ${bam_file} \${TEMP}
-        mv \${TEMP} \${TARGET}
-    fi
+    TEMP=\$(mktemp)
+    cp -L ${bam_file} \${TEMP}
+    mv \${TEMP} \${TARGET}
     
-    # Handle BAM index
+    # Handle BAM index - always create new file for output matching
     TARGET="${sample_name}_ont_to_assembled.sorted.bam.bai"
-    if [ "${bam_index}" != "\${TARGET}" ]; then
-        cp -L ${bam_index} \${TARGET}
-    elif [ -L "${bam_index}" ]; then
-        TEMP=\$(mktemp)
-        cp -L ${bam_index} \${TEMP}
-        mv \${TEMP} \${TARGET}
-    fi
+    TEMP=\$(mktemp)
+    cp -L ${bam_index} \${TEMP}
+    mv \${TEMP} \${TARGET}
     
-    # Handle transgene BED - copy to current directory with original name
-    if [ ! -f "\$(basename ${transgene_bed})" ]; then
-        cp -L ${transgene_bed} .
-    elif [ -L "${transgene_bed}" ]; then
-        TEMP=\$(mktemp)
-        cp -L ${transgene_bed} \${TEMP}
-        mv \${TEMP} \$(basename ${transgene_bed})
-    fi
+    # Handle transgene BED - must create a new file for Nextflow output matching
+    # Input files are excluded from wildcard matching, so we force a copy
+    TRANSGENE_BASENAME="\$(basename ${transgene_bed})"
+    TEMP=\$(mktemp)
+    cp -L ${transgene_bed} \${TEMP}
+    mv \${TEMP} \${TRANSGENE_BASENAME}
     
-    # Handle optional transcript file
+    # Handle optional transcript file - always create new file for output matching
     if [ -f "${transcript_bed}" ] && [ -s "${transcript_bed}" ]; then
         TARGET="${sample_name}_transcripts_to_assembly.bed"
-        if [ "${transcript_bed}" != "\${TARGET}" ]; then
-            cp -L ${transcript_bed} \${TARGET}
-        elif [ -L "${transcript_bed}" ]; then
-            TEMP=\$(mktemp)
-            cp -L ${transcript_bed} \${TEMP}
-            mv \${TEMP} \${TARGET}
-        fi
+        TEMP=\$(mktemp)
+        cp -L ${transcript_bed} \${TEMP}
+        mv \${TEMP} \${TARGET}
         echo "✓ Transcript BED included: ${transcript_bed}"
     else
         echo "○ No transcript BED file provided (optional)"
