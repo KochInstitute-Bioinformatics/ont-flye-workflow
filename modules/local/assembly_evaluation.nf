@@ -115,12 +115,39 @@ process CALCULATE_CHROMOSOME_COVERAGE {
         | samtools view -F 2048 -F 256 -b \\
         | samtools sort -o temp.bam -
     
-    # Calculate coverage and format as CSV
-    echo "sample,chromosome,length,coverage" > ${sample_name}_chromosome_coverage.csv
-    samtools coverage temp.bam | tail -n +2 | cut -f1,2,6 | awk -v sample="${sample_name}" 'BEGIN{OFS=","} {print sample,\$1,\$2,\$3}' >> ${sample_name}_chromosome_coverage.csv
+    # Index the BAM file
+    samtools index temp.bam
+    
+    # Extract chromosome to contig mapping from alignments
+    # Get the primary contig (highest coverage) for each chromosome
+    samtools view temp.bam | awk '{
+        # \$1 = query (contig), \$3 = reference (chromosome)
+        contig_map[\$3][\$1]++
+    }
+    END {
+        for (chr in contig_map) {
+            max_count = 0
+            best_contig = ""
+            for (contig in contig_map[chr]) {
+                if (contig_map[chr][contig] > max_count) {
+                    max_count = contig_map[chr][contig]
+                    best_contig = contig
+                }
+            }
+            print chr "\\t" best_contig
+        }
+    }' | sort > chr_to_contig.map
+    
+    # Calculate coverage and format as CSV with contig names
+    echo "sample,chromosome,contig,length,coverage" > ${sample_name}_chromosome_coverage.csv
+    
+    # Join coverage with contig mapping
+    samtools coverage temp.bam | tail -n +2 | cut -f1,2,6 | sort -k1,1 | \\
+        join -1 1 -2 1 -t \$'\\t' - chr_to_contig.map | \\
+        awk -v sample="${sample_name}" 'BEGIN{OFS=","} {print sample,\$1,\$3,\$2,\$4}' >> ${sample_name}_chromosome_coverage.csv
     
     # Clean up
-    rm -f temp.bam
+    rm -f temp.bam temp.bam.bai chr_to_contig.map
     
     # Create versions file
     cat <<-END_VERSIONS > versions.yml
@@ -366,8 +393,8 @@ process CONSOLIDATE_COVERAGE_SUMMARY {
     
     script:
     """
-    # Create header
-    echo "sample,chromosome,length,coverage" > coverage_summary.csv
+    # Create header with contig column
+    echo "sample,chromosome,contig,length,coverage" > coverage_summary.csv
     
     # Concatenate all coverage files (skip headers)
     for file in ${coverage_files}; do
