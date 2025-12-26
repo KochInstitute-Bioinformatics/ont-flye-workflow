@@ -114,41 +114,29 @@ process CALCULATE_CHROMOSOME_COVERAGE {
     minimap2 -a -x asm5 ${reference_chromosomes} ${annotated_assembly} \\
         | samtools view -F 2048 -F 256 -b \\
         | samtools sort -o temp.bam -
-    
+
     # Index the BAM file
     samtools index temp.bam
-    
+
     # Extract chromosome to contig mapping from alignments
     # Get the primary contig (highest coverage) for each chromosome
-    samtools view temp.bam | awk '{
-        # \$1 = query (contig), \$3 = reference (chromosome)
-        contig_map[\$3][\$1]++
-    }
-    END {
-        for (chr in contig_map) {
-            max_count = 0
-            best_contig = ""
-            for (contig in contig_map[chr]) {
-                if (contig_map[chr][contig] > max_count) {
-                    max_count = contig_map[chr][contig]
-                    best_contig = contig
-                }
-            }
-            print chr "\\t" best_contig
-        }
-    }' | sort > chr_to_contig.map
-    
+    samtools view temp.bam | awk '{print \$3 "\\t" \$1}' | \\
+        sort | uniq -c | \\
+        awk '{print \$3, \$2, \$1}' | \\
+        sort -k1,1 -k3,3rn | \\
+        awk '!seen[\$1]++ {print \$1 "\\t" \$2}' > chr_to_contig.map
+
     # Calculate coverage and format as CSV with contig names
     echo "sample,chromosome,contig,length,coverage" > ${sample_name}_chromosome_coverage.csv
-    
+
     # Join coverage with contig mapping
     samtools coverage temp.bam | tail -n +2 | cut -f1,2,6 | sort -k1,1 | \\
         join -1 1 -2 1 -t \$'\\t' - chr_to_contig.map | \\
         awk -v sample="${sample_name}" 'BEGIN{OFS=","} {print sample,\$1,\$3,\$2,\$4}' >> ${sample_name}_chromosome_coverage.csv
-    
+
     # Clean up
     rm -f temp.bam temp.bam.bai chr_to_contig.map
-    
+
     # Create versions file
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
