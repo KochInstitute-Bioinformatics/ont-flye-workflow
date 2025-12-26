@@ -96,6 +96,41 @@ process ALIGN_ANNOTATED_ASSEMBLY {
     """
 }
 
+// Process 3a: Calculate chromosome coverage for annotated assembly
+process CALCULATE_CHROMOSOME_COVERAGE {
+    tag "${sample_name}"
+    publishDir "${params.outdir}/assembly_evaluation/${sample_name}/coverage", mode: 'copy'
+    
+    input:
+    tuple val(sample_name), path(annotated_assembly), path(reference_chromosomes)
+    
+    output:
+    tuple val(sample_name), path("${sample_name}_chromosome_coverage.csv"), emit: coverage
+    path "versions.yml", emit: versions
+    
+    script:
+    """
+    # Align annotated assembly to chromosome reference
+    minimap2 -a -x asm5 ${reference_chromosomes} ${annotated_assembly} \\
+        | samtools view -F 2048 -F 256 -b \\
+        | samtools sort -o temp.bam -
+    
+    # Calculate coverage and format as CSV
+    echo "sample,chromosome,length,coverage" > ${sample_name}_chromosome_coverage.csv
+    samtools coverage temp.bam | tail -n +2 | cut -f1,2,6 | awk -v sample="${sample_name}" 'BEGIN{OFS=","} {print sample,\$1,\$2,\$3}' >> ${sample_name}_chromosome_coverage.csv
+    
+    # Clean up
+    rm -f temp.bam
+    
+    # Create versions file
+    cat <<-END_VERSIONS > versions.yml
+    "${task.process}":
+        minimap2: \$(minimap2 --version 2>&1)
+        samtools: \$(samtools --version 2>&1 | head -n1 | sed 's/samtools //')
+    END_VERSIONS
+    """
+}
+
 // Process 4: Finalize assembly by concatenating chromosomal contigs
 process FINALIZE_ASSEMBLY {
     tag "${sample_name}"
@@ -316,6 +351,28 @@ process MAP_TRANSCRIPTS_TO_ASSEMBLY {
         minimap2: \$(minimap2 --version 2>&1)
         bedops: \$(sam2bed --version 2>&1 || echo "2.4.35")
     END_VERSIONS
+    """
+}
+
+// Process 10a: Consolidate coverage summary from all samples
+process CONSOLIDATE_COVERAGE_SUMMARY {
+    publishDir "${params.outdir}/summary", mode: 'copy'
+    
+    input:
+    path coverage_files
+    
+    output:
+    path "coverage_summary.csv", emit: coverage_summary
+    
+    script:
+    """
+    # Create header
+    echo "sample,chromosome,length,coverage" > coverage_summary.csv
+    
+    # Concatenate all coverage files (skip headers)
+    for file in ${coverage_files}; do
+        tail -n +2 "\${file}" >> coverage_summary.csv
+    done
     """
 }
 

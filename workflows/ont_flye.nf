@@ -14,6 +14,8 @@ include { SIMPLE_RESULTS_SUMMARY } from '../modules/local/simple_results_summary
 include { ALIGN_ASSEMBLY_TO_GENOME } from '../modules/local/assembly_evaluation'
 include { REPAIR_ASSEMBLY } from '../modules/local/assembly_evaluation'
 include { ALIGN_ANNOTATED_ASSEMBLY } from '../modules/local/assembly_evaluation'
+include { CALCULATE_CHROMOSOME_COVERAGE } from '../modules/local/assembly_evaluation'
+include { CONSOLIDATE_COVERAGE_SUMMARY } from '../modules/local/assembly_evaluation'
 include { FINALIZE_ASSEMBLY } from '../modules/local/assembly_evaluation'
 include { ALIGN_FINAL_ASSEMBLY } from '../modules/local/assembly_evaluation'
 include { MAP_READS_TO_ASSEMBLY } from '../modules/local/assembly_evaluation'
@@ -397,6 +399,29 @@ if (params.run_assembly_evaluation && params.reference_genome) {
         annotated_with_ref
     )
     
+    // STEP 3a: Calculate chromosome coverage (if reference_chromosomes is provided)
+    if (params.reference_chromosomes) {
+        reference_chromosomes = file(params.reference_chromosomes, checkIfExists: true)
+        
+        annotated_with_chr_ref = REPAIR_ASSEMBLY.out.annotated_assembly
+            .map { sample_name, annotated_fasta ->
+                tuple(sample_name, annotated_fasta, reference_chromosomes)
+            }
+        
+        CALCULATE_CHROMOSOME_COVERAGE(
+            annotated_with_chr_ref
+        )
+        
+        // Collect all coverage files and create summary
+        all_coverage_files = CALCULATE_CHROMOSOME_COVERAGE.out.coverage
+            .map { _sample_name, coverage_file -> coverage_file }
+            .collect()
+        
+        CONSOLIDATE_COVERAGE_SUMMARY(
+            all_coverage_files
+        )
+    }
+    
     // STEP 4: Finalize assembly (concatenate chromosomal contigs)
     FINALIZE_ASSEMBLY(
         ALIGN_ANNOTATED_ASSEMBLY.out.alignment
@@ -536,4 +561,6 @@ emit:
         CONVERT_BLAST_TO_BED.out.bed_file : channel.empty()
     transcript_alignments = params.run_assembly_evaluation && params.reference_genome && params.transcripts_fasta ? 
         MAP_TRANSCRIPTS_TO_ASSEMBLY.out.transcript_bed : channel.empty()
+    coverage_summary = params.run_assembly_evaluation && params.reference_genome && params.reference_chromosomes ? 
+        CONSOLIDATE_COVERAGE_SUMMARY.out.coverage_summary : channel.empty()
 }
