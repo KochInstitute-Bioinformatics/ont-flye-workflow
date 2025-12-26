@@ -202,7 +202,7 @@ process BLAST_TRANSGENE_TO_ASSEMBLY {
     tuple val(sample_name), path(final_assembly), val(transgene_name), path(transgene_file)
     
     output:
-    tuple val(sample_name), path("${sample_name}_${transgene_name}_transgene_blast.txt"), val(transgene_name), path(final_assembly), emit: blast_results
+    tuple val(sample_name), path("${sample_name}_transgene_blast.txt"), path(final_assembly), emit: blast_results
     path "versions.yml", emit: versions
     
     script:
@@ -212,7 +212,7 @@ process BLAST_TRANSGENE_TO_ASSEMBLY {
     
     # BLAST transgene against final assembly
     blastn -query ${transgene_file} -db assembly_db \\
-        -outfmt 6 -out ${sample_name}_${transgene_name}_transgene_blast.txt
+        -outfmt 6 -out ${sample_name}_transgene_blast.txt
     
     # Create versions file
     cat <<-END_VERSIONS > versions.yml
@@ -264,19 +264,19 @@ workflow ASSEMBLY_EVALUATION_WORKFLOW {
 
 // Process 8: Convert BLAST results to BED format
 process CONVERT_BLAST_TO_BED {
-    tag "${sample_name}_${transgene_name}"
+    tag "${sample_name}"
     
     input:
-    tuple val(sample_name), path(blast_txt), val(transgene_name)
+    tuple val(sample_name), path(blast_txt)
     
     output:
-    tuple val(sample_name), path("${sample_name}_${transgene_name}_transgene_blast.bed"), emit: bed_file
+    tuple val(sample_name), path("${sample_name}_transgene_blast.bed"), emit: bed_file
     path "versions.yml", emit: versions
     
     script:
     """
     # Convert BLAST output to BED format
-    blast_to_bed.py ${blast_txt} > ${sample_name}_${transgene_name}_transgene_blast.bed
+    blast_to_bed.py ${blast_txt} > ${sample_name}_transgene_blast.bed
     
     # Create versions file
     cat <<-END_VERSIONS > versions.yml
@@ -338,14 +338,11 @@ process CONSOLIDATE_IGV_DATA {
           path("${sample_name}_final_assembly.fasta"),
           path("${sample_name}_ont_to_assembled.sorted.bam"),
           path("${sample_name}_ont_to_assembled.sorted.bam.bai"),
-          path("*_transgene_blast.bed"),
+          path("${sample_name}_transgene_blast.bed"),
           path("${sample_name}_transcripts_to_assembly.bed", optional: true),
           emit: igv_files
     
     script:
-    // Get the transgene name from the input file for the output filename
-    def transgene_basename = transgene_bed.name
-    
     """
     # Nextflow stages files as symlinks, but we need actual files for outputs
     # Copy files to ensure they exist as real files in the work directory
@@ -368,10 +365,11 @@ process CONSOLIDATE_IGV_DATA {
     cp -L ${bam_index} \${TEMP}
     mv \${TEMP} \${TARGET}
     
-    # Handle transgene BED - copy with preserved filename (must match *.transgene.bed pattern)
+    # Handle transgene BED - copy with standardized filename
+    TARGET="${sample_name}_transgene_blast.bed"
     TEMP=\$(mktemp)
     cp -L ${transgene_bed} \${TEMP}
-    mv \${TEMP} ${transgene_basename}
+    mv \${TEMP} \${TARGET}
     
     # Handle optional transcript file - always create new file for output matching
     if [ -f "${transcript_bed}" ] && [ -s "${transcript_bed}" ]; then
@@ -388,7 +386,7 @@ process CONSOLIDATE_IGV_DATA {
     chmod 664 ${sample_name}_final_assembly.fasta || true
     chmod 664 ${sample_name}_ont_to_assembled.sorted.bam || true
     chmod 664 ${sample_name}_ont_to_assembled.sorted.bam.bai || true
-    chmod 664 ${transgene_basename} || true
+    chmod 664 ${sample_name}_transgene_blast.bed || true
     if [ -f "${sample_name}_transcripts_to_assembly.bed" ]; then
         chmod 664 ${sample_name}_transcripts_to_assembly.bed || true
     fi

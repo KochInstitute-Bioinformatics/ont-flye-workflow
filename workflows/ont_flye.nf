@@ -453,8 +453,8 @@ if (params.run_assembly_evaluation && params.reference_genome) {
     // STEP 8: Convert BLAST results to BED format
     CONVERT_BLAST_TO_BED(
         BLAST_TRANSGENE_TO_ASSEMBLY.out.blast_results
-            .map { sample_name, blast_file, transgene_name, _final_assembly ->
-                tuple(sample_name, blast_file, transgene_name)
+            .map { sample_name, blast_file, _final_assembly ->
+                tuple(sample_name, blast_file)
             }
     )
     
