@@ -118,24 +118,35 @@ process CALCULATE_CHROMOSOME_COVERAGE {
     # Index the BAM file
     samtools index temp.bam
 
-    # Extract chromosome to contig mapping from alignments
-    # Get the primary contig (highest coverage) for each chromosome
+    # Create contig-to-chromosome mapping with alignment counts
+    # Step 1: Extract chromosome and contig name from alignments, count occurrences
     samtools view temp.bam | awk '{print \$3 "\\t" \$1}' | \\
         sort | uniq -c | \\
-        awk '{print \$3, \$2, \$1}' | \\
-        sort -k1,1 -k3,3rn | \\
-        awk '!seen[\$1]++ {print \$1 "\\t" \$2}' > chr_to_contig.map
+        awk '{print \$2 "\\t" \$3 "\\t" \$1}' > contig_chr_count.txt
 
-    # Calculate coverage and format as CSV with contig names
-    echo "sample,chromosome,contig,length,coverage" > ${sample_name}_chromosome_coverage.csv
+    # Get coverage data: chromosome, length, meandepth
+    samtools coverage temp.bam | tail -n +2 | cut -f1,3,7 | sort -k1,1 > coverage_data.txt
 
-    # Join coverage with contig mapping
-    samtools coverage temp.bam | tail -n +2 | cut -f1,2,6 | sort -k1,1 | \\
-        join -1 1 -2 1 -t \$'\\t' - chr_to_contig.map | \\
-        awk -v sample="${sample_name}" 'BEGIN{OFS=","} {print sample,\$1,\$3,\$2,\$4}' >> ${sample_name}_chromosome_coverage.csv
+    # ========================================
+    # COVERAGE REPORT (all contigs with alignment counts)
+    # ========================================
+    echo "sample,chromosome,contig,length,coverage,alignment_count" > ${sample_name}_chromosome_coverage.csv
+
+    # For each line in contig_chr_count.txt, look up the chromosome coverage
+    # contig_chr_count.txt: chr contig count
+    # coverage_data.txt: chr length meandepth
+    while IFS=\$'\\t' read -r chr contig count; do
+        # Look up coverage for this chromosome
+        cov_line=\$(grep "^\${chr}"\$'\\t' coverage_data.txt)
+        if [ -n "\$cov_line" ]; then
+            length=\$(echo "\$cov_line" | cut -f2)
+            coverage=\$(echo "\$cov_line" | cut -f3)
+            echo "${sample_name},\${chr},\${contig},\${length},\${coverage},\${count}"
+        fi
+    done < contig_chr_count.txt >> ${sample_name}_chromosome_coverage.csv
 
     # Clean up
-    rm -f temp.bam temp.bam.bai chr_to_contig.map
+    rm -f temp.bam temp.bam.bai contig_chr_count.txt coverage_data.txt
 
     # Create versions file
     cat <<-END_VERSIONS > versions.yml
@@ -369,7 +380,7 @@ process MAP_TRANSCRIPTS_TO_ASSEMBLY {
     """
 }
 
-// Process 10a: Consolidate coverage summary from all samples
+// Process 10a: Consolidate PRIMARY coverage summary from all samples
 process CONSOLIDATE_COVERAGE_SUMMARY {
     publishDir "${params.outdir}/summary", mode: 'copy'
     
@@ -377,17 +388,71 @@ process CONSOLIDATE_COVERAGE_SUMMARY {
     path coverage_files
     
     output:
-    path "coverage_summary.csv", emit: coverage_summary
+    path "coverage_summary_primary.csv", emit: coverage_summary
     
     script:
     """
     # Create header with contig column
-    echo "sample,chromosome,contig,length,coverage" > coverage_summary.csv
+    echo "sample,chromosome,contig,length,coverage,is_primary" > coverage_summary_primary.csv
+    
+    # Debug: List all input files
+    echo "Processing PRIMARY coverage files:" >&2
+    ls -lh ${coverage_files} >&2
+    echo "" >&2
     
     # Concatenate all coverage files (skip headers)
     for file in ${coverage_files}; do
-        tail -n +2 "\${file}" >> coverage_summary.csv
+        echo "Processing: \${file}" >&2
+        if [ -f "\${file}" ] && [ -s "\${file}" ]; then
+            echo "  File exists and has content" >&2
+            tail -n +2 "\${file}" >> coverage_summary_primary.csv
+        else
+            echo "  WARNING: File is empty or doesn't exist!" >&2
+        fi
     done
+    
+    # Report final line count
+    LINES=\$(wc -l < coverage_summary_primary.csv)
+    echo "" >&2
+    echo "Final coverage_summary_primary.csv has \${LINES} lines (including header)" >&2
+    """
+}
+
+// Process 10b: Consolidate DETAILED coverage summary from all samples
+process CONSOLIDATE_DETAILED_COVERAGE_SUMMARY {
+    publishDir "${params.outdir}/summary", mode: 'copy'
+    
+    input:
+    path coverage_files
+    
+    output:
+    path "coverage_summary_detailed.csv", emit: coverage_summary_detailed
+    
+    script:
+    """
+    # Create header with all columns
+    echo "sample,chromosome,contig,length,coverage,alignment_count,is_primary" > coverage_summary_detailed.csv
+    
+    # Debug: List all input files
+    echo "Processing DETAILED coverage files:" >&2
+    ls -lh ${coverage_files} >&2
+    echo "" >&2
+    
+    # Concatenate all coverage files (skip headers)
+    for file in ${coverage_files}; do
+        echo "Processing: \${file}" >&2
+        if [ -f "\${file}" ] && [ -s "\${file}" ]; then
+            echo "  File exists and has content" >&2
+            tail -n +2 "\${file}" >> coverage_summary_detailed.csv
+        else
+            echo "  WARNING: File is empty or doesn't exist!" >&2
+        fi
+    done
+    
+    # Report final line count
+    LINES=\$(wc -l < coverage_summary_detailed.csv)
+    echo "" >&2
+    echo "Final coverage_summary_detailed.csv has \${LINES} lines (including header)" >&2
     """
 }
 
